@@ -1,0 +1,38 @@
+{
+  "name": "teacherOS",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.114",
+    "@iconify-json/simple-icons": "^1.2.87",
+    "@nuxt/image": "2.0.0",
+    "@nuxt/test-utils": "4.0.3",
+    "@nuxt/ui": "^4.9.0",
+    "@nuxtjs/supabase": "2.0.9",
+    "@pinia-orm/nuxt": "1.10.2",
+    "@pinia/colada-nuxt": "1.0.1",
+    "@pinia/nuxt": "0.11.3",
+    "nuxt": "^4.4.8",
+    "tailwindcss": "^4.3.1"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.16.0",
+    "@playwright/test": "^1.61.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@vue/test-utils": "^2.4.11",
+    "eslint": "^10.6.0",
+    "playwright-core": "^1.61.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10",
+    "vue-tsc": "^3.3.5"
+  },
+  "packageManager": "pnpm@11.9.0"
+}
