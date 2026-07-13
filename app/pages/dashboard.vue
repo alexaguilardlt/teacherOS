@@ -20,6 +20,13 @@ const { data: cursos } = await useAsyncData('dashboard-cursos', async () => {
   return data ?? []
 })
 
+const { data: festivos } = await useAsyncData('dashboard-festivos', async () => {
+  const { data } = await supabase
+    .from('dias_no_lectivos')
+    .select('id, nombre, fecha_inicio, fecha_fin')
+  return data ?? []
+})
+
 const { data: asignaturas } = await useAsyncData('dashboard-asignaturas', async () => {
   const { data } = await supabase
     .from('asignaturas')
@@ -78,7 +85,14 @@ const { data: sesionSubtemas } = await useAsyncData('dashboard-sesion-subtemas',
 const { data: subtemasReparto } = await useAsyncData('dashboard-subtemas-reparto', async () => {
   const subtemaIds = [...new Set((sesionSubtemas.value ?? []).map(ss => ss.subtema_id))]
   if (!subtemaIds.length) return []
-  const { data } = await supabase.from('subtemas').select('id, nombre').in('id', subtemaIds)
+  const { data } = await supabase.from('subtemas').select('id, nombre, tema_id').in('id', subtemaIds)
+  return data ?? []
+})
+
+const { data: temasReparto } = await useAsyncData('dashboard-temas-reparto', async () => {
+  const temaIds = [...new Set((subtemasReparto.value ?? []).map(s => s.tema_id))]
+  if (!temaIds.length) return []
+  const { data } = await supabase.from('temas').select('id, nombre').in('id', temaIds)
   return data ?? []
 })
 
@@ -89,31 +103,59 @@ const etiquetaEstado: Record<string, string> = {
   impartida: 'Impartida'
 }
 
-function detalleSesion(sesion: { id: string, franja_horaria_id: string }) {
+function detalleSesion(sesion: { id: string, fecha: string, estado: string, franja_horaria_id: string }) {
   const franja = horarios.value?.find(f => f.id === sesion.franja_horaria_id)
   const ga = grupoAsignaturas.value?.find(item => item.id === franja?.grupo_asignatura_id)
   const grupo = grupos.value?.find(item => item.id === ga?.grupo_id)
   const asignatura = asignaturas.value?.find(item => item.id === ga?.asignatura_id)
-  const contenido = (sesionSubtemas.value ?? [])
+  const puntos = (sesionSubtemas.value ?? [])
     .filter(ss => ss.sesion_id === sesion.id)
     .map((ss) => {
-      const nombre = subtemasReparto.value?.find(s => s.id === ss.subtema_id)?.nombre ?? ''
-      return ss.fraccion < 1 ? `${nombre} (½)` : nombre
+      const subtema = subtemasReparto.value?.find(s => s.id === ss.subtema_id)
+      const tema = temasReparto.value?.find(t => t.id === subtema?.tema_id)
+      return {
+        tema: tema?.nombre ?? '',
+        subtema: subtema?.nombre ?? '',
+        fraccion: ss.fraccion
+      }
     })
+  const contenido = puntos
+    .map(p => (p.fraccion < 1 ? `${p.subtema} (½)` : p.subtema))
     .join(', ')
   return {
+    fecha: sesion.fecha,
+    estado: sesion.estado,
     grupo: grupo?.nombre ?? '',
     color: grupo?.color ?? '#94a3b8',
     asignatura: asignatura?.nombre ?? '',
-    contenido
+    contenido,
+    puntos
   }
 }
 
+const sidebarAbierto = ref(true)
 const vistaReparto = ref<'lista' | 'calendario'>('lista')
 const opcionesVistaReparto = [
   { label: 'Lista', value: 'lista' },
   { label: 'Calendario', value: 'calendario' }
 ]
+
+const diaSeleccionado = ref<string | null>(null)
+
+function alternarDia(fecha: string) {
+  diaSeleccionado.value = diaSeleccionado.value === fecha ? null : fecha
+}
+
+function onClickCelda(celda: CeldaCalendario | null) {
+  if (celda) alternarDia(celda.fecha)
+}
+
+const sesionesDelDiaSeleccionado = computed(() => {
+  if (!diaSeleccionado.value) return []
+  return (sesiones.value ?? [])
+    .filter(s => s.fecha === diaSeleccionado.value)
+    .map(s => detalleSesion(s))
+})
 
 const DIAS_SEMANA_CALENDARIO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie']
 const NOMBRES_MES = [
@@ -125,6 +167,11 @@ interface CeldaCalendario {
   fecha: string
   dia: number
   sesiones: { color: string, grupo: string, asignatura: string }[]
+  festivo: string | null
+}
+
+function festivoDe(fechaISO: string) {
+  return (festivos.value ?? []).find(f => fechaISO >= f.fecha_inicio && fechaISO <= f.fecha_fin)
 }
 
 interface MesCalendario {
@@ -178,7 +225,8 @@ const mesesCalendario = computed<MesCalendario[]>(() => {
       semanaActual.push({
         fecha: fechaISO,
         dia: d.getUTCDate(),
-        sesiones: sesionesPorFecha.get(fechaISO) ?? []
+        sesiones: sesionesPorFecha.get(fechaISO) ?? [],
+        festivo: festivoDe(fechaISO)?.nombre || (festivoDe(fechaISO) ? 'Festivo' : null)
       })
     }
     if (semanaActual.length > 0) {
@@ -245,7 +293,7 @@ const sinNada = computed(() =>
 </script>
 
 <template>
-  <UContainer class="py-10">
+  <div class="px-4 py-10 sm:px-6 lg:px-8">
     <h1 class="mb-8 text-2xl font-bold">
       Hola{{ profesor?.nombre ? `, ${profesor.nombre}` : '' }}
     </h1>
@@ -265,35 +313,50 @@ const sinNada = computed(() =>
       </UButton>
     </div>
 
-    <div v-else>
-      <UCard
-        v-if="cursos?.length"
-        class="mb-6"
+    <div
+      v-else
+      class="flex items-start gap-6"
+    >
+      <aside
+        v-if="sidebarAbierto"
+        class="flex w-72 shrink-0 flex-col gap-6"
       >
-        <template #header>
-          <h2 class="font-semibold">
-            Curso
-          </h2>
-        </template>
-        <ul class="flex flex-col gap-2">
-          <li
-            v-for="curso in cursos"
-            :key="curso.id"
-          >
-            <NuxtLink
-              :to="`/curso/${curso.id}`"
-              class="text-primary font-medium"
-            >
-              {{ curso.nombre }}
-            </NuxtLink>
-            <span class="text-sm text-muted">
-              ({{ curso.fecha_inicio }} – {{ curso.fecha_fin }})
-            </span>
-          </li>
-        </ul>
-      </UCard>
+        <UButton
+          icon="i-lucide-panel-left-close"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          class="self-start"
+          aria-label="Ocultar menú"
+          @click="sidebarAbierto = false"
+        >
+          Ocultar menú
+        </UButton>
 
-      <div class="mb-6 grid gap-6 md:grid-cols-2">
+        <UCard v-if="cursos?.length">
+          <template #header>
+            <h2 class="font-semibold">
+              Curso
+            </h2>
+          </template>
+          <ul class="flex flex-col gap-2">
+            <li
+              v-for="curso in cursos"
+              :key="curso.id"
+            >
+              <NuxtLink
+                :to="`/curso/${curso.id}`"
+                class="text-primary font-medium"
+              >
+                {{ curso.nombre }}
+              </NuxtLink>
+              <p class="text-sm text-muted">
+                {{ curso.fecha_inicio }} – {{ curso.fecha_fin }}
+              </p>
+            </li>
+          </ul>
+        </UCard>
+
         <UCard>
           <template #header>
             <h2 class="font-semibold">
@@ -358,211 +421,301 @@ const sinNada = computed(() =>
             Aún no tienes grupos.
           </p>
         </UCard>
-      </div>
+      </aside>
 
-      <UCard>
-        <template #header>
-          <h2 class="font-semibold">
-            Horario semanal
-          </h2>
-        </template>
+      <UButton
+        v-else
+        icon="i-lucide-panel-left-open"
+        color="neutral"
+        variant="subtle"
+        size="sm"
+        aria-label="Mostrar menú"
+        @click="sidebarAbierto = true"
+      />
 
-        <div
-          v-if="filasHorario.length"
-          class="overflow-x-auto"
-        >
-          <table class="w-full min-w-[640px] border-collapse text-sm">
-            <thead>
-              <tr>
-                <th class="p-2 text-left text-muted">
-                  Hora
-                </th>
-                <th
-                  v-for="dia in dias"
-                  :key="dia.value"
-                  class="p-2 text-left text-muted"
-                >
-                  {{ dia.label }}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="fila in filasHorario"
-                :key="`${fila.horaInicio}-${fila.horaFin}`"
-                class="border-t border-default"
-              >
-                <td class="p-2 align-top whitespace-nowrap text-muted">
-                  {{ fila.horaInicio }}–{{ fila.horaFin }}
-                </td>
-                <td
-                  v-for="dia in dias"
-                  :key="dia.value"
-                  class="p-2 align-top"
-                >
-                  <div
-                    v-if="celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)"
-                    class="rounded-md px-2 py-1 text-white"
-                    :style="{ backgroundColor: celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.color }"
-                  >
-                    <p class="font-medium">
-                      {{ celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.asignatura }}
-                    </p>
-                    <p class="text-xs opacity-90">
-                      {{ celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.grupo }}
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p
-          v-else
-          class="text-sm text-muted"
-        >
-          Aún no tienes horarios.
-        </p>
-      </UCard>
-
-      <UCard class="mt-6">
-        <template #header>
-          <div class="flex flex-wrap items-center justify-between gap-3">
+      <main class="min-w-0 flex-1">
+        <UCard class="mb-6">
+          <template #header>
             <h2 class="font-semibold">
-              Reparto del curso
+              Horario semanal
             </h2>
-            <UTabs
-              v-if="sesiones?.length"
-              v-model="vistaReparto"
-              :items="opcionesVistaReparto"
-              :content="false"
-              size="xs"
-            />
-          </div>
-        </template>
+          </template>
 
-        <div v-if="sesiones?.length">
           <div
-            v-if="vistaReparto === 'lista'"
-            class="max-h-[32rem] overflow-y-auto overflow-x-auto"
+            v-if="filasHorario.length"
+            class="overflow-x-auto"
           >
-            <table class="w-full min-w-[640px] text-sm">
+            <table class="w-full min-w-[640px] border-collapse text-sm">
               <thead>
-                <tr class="sticky top-0 bg-default text-left text-muted">
-                  <th class="p-2">
-                    Fecha
+                <tr>
+                  <th class="p-2 text-left text-muted">
+                    Hora
                   </th>
-                  <th class="p-2">
-                    Grupo
-                  </th>
-                  <th class="p-2">
-                    Asignatura
-                  </th>
-                  <th class="p-2">
-                    Contenido
-                  </th>
-                  <th class="p-2">
-                    Estado
+                  <th
+                    v-for="dia in dias"
+                    :key="dia.value"
+                    class="p-2 text-left text-muted"
+                  >
+                    {{ dia.label }}
                   </th>
                 </tr>
               </thead>
               <tbody>
                 <tr
-                  v-for="sesion in sesiones"
-                  :key="sesion.id"
+                  v-for="fila in filasHorario"
+                  :key="`${fila.horaInicio}-${fila.horaFin}`"
                   class="border-t border-default"
                 >
-                  <td class="p-2 whitespace-nowrap">
-                    {{ sesion.fecha }}
+                  <td class="p-2 align-top whitespace-nowrap text-muted">
+                    {{ fila.horaInicio }}–{{ fila.horaFin }}
                   </td>
-                  <td class="p-2 whitespace-nowrap">
-                    <span class="inline-flex items-center gap-2">
-                      <span
-                        class="size-2.5 shrink-0 rounded-full"
-                        :style="{ backgroundColor: detalleSesion(sesion).color }"
-                      />
-                      {{ detalleSesion(sesion).grupo }}
-                    </span>
-                  </td>
-                  <td class="p-2 whitespace-nowrap">
-                    {{ detalleSesion(sesion).asignatura }}
-                  </td>
-                  <td class="p-2">
-                    {{ detalleSesion(sesion).contenido }}
-                  </td>
-                  <td class="p-2">
-                    <UBadge
-                      :color="sesion.estado === 'confirmada' ? 'success' : 'neutral'"
-                      variant="subtle"
+                  <td
+                    v-for="dia in dias"
+                    :key="dia.value"
+                    class="p-2 align-top"
+                  >
+                    <div
+                      v-if="celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)"
+                      class="rounded-md px-2 py-1 text-white"
+                      :style="{ backgroundColor: celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.color }"
                     >
-                      {{ etiquetaEstado[sesion.estado] }}
-                    </UBadge>
+                      <p class="font-medium">
+                        {{ celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.asignatura }}
+                      </p>
+                      <p class="text-xs opacity-90">
+                        {{ celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.grupo }}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
-
-          <div
+          <p
             v-else
-            class="max-h-[42rem] overflow-y-auto"
+            class="text-sm text-muted"
           >
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <div
-                v-for="mes in mesesCalendario"
-                :key="mes.etiqueta"
-                class="rounded-lg border border-default p-3"
-              >
-                <p class="mb-2 text-sm font-medium">
-                  {{ mes.etiqueta }}
-                </p>
-                <div class="grid grid-cols-5 gap-1 text-center text-xs text-muted">
-                  <span
-                    v-for="d in DIAS_SEMANA_CALENDARIO"
-                    :key="d"
+            Aún no tienes horarios.
+          </p>
+        </UCard>
+
+        <UCard>
+          <template #header>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <h2 class="font-semibold">
+                Reparto del curso
+              </h2>
+              <UTabs
+                v-if="sesiones?.length"
+                v-model="vistaReparto"
+                :items="opcionesVistaReparto"
+                :content="false"
+                size="xs"
+              />
+            </div>
+          </template>
+
+          <div v-if="sesiones?.length">
+            <div
+              v-if="vistaReparto === 'lista'"
+              class="max-h-[36rem] overflow-y-auto overflow-x-auto"
+            >
+              <table class="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr class="sticky top-0 bg-default text-left text-muted">
+                    <th class="p-2">
+                      Fecha
+                    </th>
+                    <th class="p-2">
+                      Grupo
+                    </th>
+                    <th class="p-2">
+                      Asignatura
+                    </th>
+                    <th class="p-2">
+                      Contenido
+                    </th>
+                    <th class="p-2">
+                      Estado
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="sesion in sesiones"
+                    :key="sesion.id"
+                    class="border-t border-default"
                   >
-                    {{ d }}
-                  </span>
-                </div>
-                <div
-                  v-for="(semana, i) in mes.semanas"
-                  :key="i"
-                  class="mt-1 grid grid-cols-5 gap-1"
-                >
-                  <div
-                    v-for="(celda, j) in semana"
-                    :key="j"
-                    class="flex aspect-square flex-col items-center justify-center rounded text-xs"
-                    :class="celda?.sesiones.length ? 'bg-primary/10' : ''"
-                  >
-                    <template v-if="celda">
-                      <span class="text-muted">{{ celda.dia }}</span>
-                      <span
-                        v-if="celda.sesiones.length"
-                        class="mt-0.5 flex gap-0.5"
-                      >
+                    <td class="p-2 whitespace-nowrap">
+                      {{ sesion.fecha }}
+                    </td>
+                    <td class="p-2 whitespace-nowrap">
+                      <span class="inline-flex items-center gap-2">
                         <span
-                          v-for="(s, k) in celda.sesiones.slice(0, 4)"
-                          :key="k"
-                          class="size-1.5 rounded-full"
-                          :style="{ backgroundColor: s.color }"
-                          :title="`${s.grupo} · ${s.asignatura}`"
+                          class="size-2.5 shrink-0 rounded-full"
+                          :style="{ backgroundColor: detalleSesion(sesion).color }"
                         />
+                        {{ detalleSesion(sesion).grupo }}
                       </span>
-                    </template>
+                    </td>
+                    <td class="p-2 whitespace-nowrap">
+                      {{ detalleSesion(sesion).asignatura }}
+                    </td>
+                    <td class="p-2">
+                      {{ detalleSesion(sesion).contenido }}
+                    </td>
+                    <td class="p-2">
+                      <UBadge
+                        :color="sesion.estado === 'confirmada' ? 'success' : 'neutral'"
+                        variant="subtle"
+                      >
+                        {{ etiquetaEstado[sesion.estado] }}
+                      </UBadge>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              v-else
+              class="flex flex-col gap-6 lg:flex-row lg:items-start"
+            >
+              <div class="max-h-[46rem] flex-1 overflow-y-auto">
+                <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div
+                    v-for="mes in mesesCalendario"
+                    :key="mes.etiqueta"
+                    class="rounded-lg border border-default p-3"
+                  >
+                    <p class="mb-2 text-sm font-medium">
+                      {{ mes.etiqueta }}
+                    </p>
+                    <div class="grid grid-cols-5 gap-1 text-center text-xs text-muted">
+                      <span
+                        v-for="d in DIAS_SEMANA_CALENDARIO"
+                        :key="d"
+                      >
+                        {{ d }}
+                      </span>
+                    </div>
+                    <div
+                      v-for="(semana, i) in mes.semanas"
+                      :key="i"
+                      class="mt-1 grid grid-cols-5 gap-1"
+                    >
+                      <button
+                        v-for="(celda, j) in semana"
+                        :key="j"
+                        type="button"
+                        class="flex min-h-[4.5rem] flex-col items-start gap-0.5 rounded p-1 text-left text-xs"
+                        :class="[
+                          celda?.festivo
+                            ? 'bg-error/10 hover:bg-error/20'
+                            : (celda?.sesiones.length ? 'bg-primary/10 hover:bg-primary/20' : ''),
+                          diaSeleccionado === celda?.fecha ? 'ring-2 ring-primary' : ''
+                        ]"
+                        :disabled="!celda"
+                        :title="celda?.festivo ?? undefined"
+                        @click="onClickCelda(celda)"
+                      >
+                        <template v-if="celda">
+                          <span :class="celda.festivo ? 'font-medium text-error' : 'text-muted'">{{ celda.dia }}</span>
+                          <span
+                            v-if="celda.festivo"
+                            class="block w-full truncate text-[10px] text-error"
+                          >
+                            {{ celda.festivo }}
+                          </span>
+                          <span
+                            v-for="(s, k) in celda.sesiones.slice(0, 3)"
+                            :key="k"
+                            class="block w-full truncate rounded px-1 text-[10px] text-white"
+                            :style="{ backgroundColor: s.color }"
+                          >
+                            {{ s.grupo }}
+                          </span>
+                          <span
+                            v-if="celda.sesiones.length > 3"
+                            class="text-[10px] text-muted"
+                          >
+                            +{{ celda.sesiones.length - 3 }} más
+                          </span>
+                        </template>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
+
+              <div class="w-full shrink-0 lg:w-80">
+                <UCard>
+                  <template #header>
+                    <h3 class="text-sm font-semibold">
+                      {{ diaSeleccionado ?? 'Selecciona un día' }}
+                    </h3>
+                  </template>
+
+                  <p
+                    v-if="!diaSeleccionado"
+                    class="text-sm text-muted"
+                  >
+                    Haz clic en un día del calendario para ver el detalle de sus sesiones.
+                  </p>
+                  <p
+                    v-else-if="!sesionesDelDiaSeleccionado.length"
+                    class="text-sm text-muted"
+                  >
+                    Ese día no tiene sesiones.
+                  </p>
+                  <div
+                    v-else
+                    class="flex flex-col gap-4"
+                  >
+                    <div
+                      v-for="(detalle, i) in sesionesDelDiaSeleccionado"
+                      :key="i"
+                      class="border-b border-default pb-3 last:border-b-0 last:pb-0"
+                    >
+                      <p class="flex items-center gap-2 font-medium">
+                        <span
+                          class="size-2.5 shrink-0 rounded-full"
+                          :style="{ backgroundColor: detalle.color }"
+                        />
+                        {{ detalle.grupo }}
+                      </p>
+                      <p class="text-sm text-muted">
+                        {{ detalle.asignatura }}
+                      </p>
+                      <ul class="mt-1 flex flex-col gap-1 text-sm">
+                        <li
+                          v-for="(punto, j) in detalle.puntos"
+                          :key="j"
+                        >
+                          <span class="text-muted">{{ punto.tema }} — </span>{{ punto.subtema }}<span v-if="punto.fraccion < 1"> (½)</span>
+                        </li>
+                      </ul>
+                      <UBadge
+                        :color="detalle.estado === 'confirmada' ? 'success' : 'neutral'"
+                        variant="subtle"
+                        class="mt-2"
+                      >
+                        {{ etiquetaEstado[detalle.estado] }}
+                      </UBadge>
+                    </div>
+                  </div>
+                </UCard>
+              </div>
             </div>
           </div>
-        </div>
-        <p
-          v-else
-          class="text-sm text-muted"
-        >
-          Todavía no se ha generado el reparto de ninguna asignatura. Entra en un grupo y pulsa "Ver reparto" en la asignatura que quieras repartir.
-        </p>
-      </UCard>
+          <p
+            v-else
+            class="text-sm text-muted"
+          >
+            Todavía no se ha generado el reparto de ninguna asignatura. Entra en un grupo y pulsa "Ver reparto" en la asignatura que quieras repartir.
+          </p>
+        </UCard>
+      </main>
     </div>
-  </UContainer>
+  </div>
 </template>

@@ -143,14 +143,25 @@ export function useReparto() {
     }
 
     // --- 3) Repartir los bloques a lo largo de todo el curso (no solo al principio) ---
-    const totalNecesario = bloques.reduce((acc, b) => acc + b.ancho, 0)
-    const stride = totalNecesario > 0 ? Math.max(1, Math.floor(slots.length / totalNecesario)) : 1
-
+    // Se reparte por FECHA objetivo (proporcional a la posición del bloque en el
+    // temario dentro del rango del curso), no saltando un nº fijo de slots: como
+    // varias franjas de la semana se entrelazan en `slots`, saltar un índice fijo
+    // podía coincidir con el nº de franjas semanales y caer siempre en el mismo
+    // día de la semana, dejando el resto sin usar nunca.
     const asignaciones: { slot: Slot, subtemaId: string, fraccion: number }[] = []
     const subtemasNoAsignadosIds: string[] = []
 
+    const diasTotalesMs = Math.max(1, finMs - inicioMs)
     let cursor = 0
-    for (const bloque of bloques) {
+    for (const [indice, bloque] of bloques.entries()) {
+      const fechaObjetivoMs = inicioMs + Math.floor((indice / bloques.length) * diasTotalesMs)
+      while (
+        cursor < slots.length
+        && new Date(`${slots[cursor]!.fecha}T00:00:00Z`).getTime() < fechaObjetivoMs
+      ) {
+        cursor++
+      }
+
       if (cursor + bloque.ancho > slots.length) {
         subtemasNoAsignadosIds.push(...bloque.subtemaIds)
         continue
@@ -162,7 +173,7 @@ export function useReparto() {
           asignaciones.push({ slot, subtemaId, fraccion })
         }
       }
-      cursor += bloque.ancho + (stride - 1)
+      cursor += bloque.ancho
     }
 
     // --- 4) Agrupar por sesión (misma franja+fecha) e insertar ---
