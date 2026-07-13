@@ -108,6 +108,10 @@ function seleccionDe(asignaturaId: string) {
   return seleccion.value.find(s => s.asignaturaId === asignaturaId)
 }
 
+function grupoAsignaturaGuardadaId(asignaturaId: string) {
+  return grupoAsignaturasIniciales.value?.find(ga => ga.asignatura_id === asignaturaId)?.id
+}
+
 function alternarAsignatura(asignaturaId: string) {
   const existente = seleccionDe(asignaturaId)
   if (existente) {
@@ -266,11 +270,21 @@ async function eliminarGrupo() {
       :key="asignatura.id"
       class="mb-4 rounded-lg border border-default p-4"
     >
-      <UCheckbox
-        :model-value="Boolean(seleccionDe(asignatura.id))"
-        :label="asignatura.nombre"
-        @update:model-value="alternarAsignatura(asignatura.id)"
-      />
+      <div class="flex items-center justify-between">
+        <UCheckbox
+          :model-value="Boolean(seleccionDe(asignatura.id))"
+          :label="asignatura.nombre"
+          @update:model-value="alternarAsignatura(asignatura.id)"
+        />
+
+        <NuxtLink
+          v-if="grupoAsignaturaGuardadaId(asignatura.id)"
+          :to="`/reparto/${grupoAsignaturaGuardadaId(asignatura.id)}`"
+          class="text-primary text-sm"
+        >
+          Ver reparto →
+        </NuxtLink>
+      </div>
 
       <div
         v-if="seleccionDe(asignatura.id)"

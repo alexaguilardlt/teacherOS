@@ -57,6 +57,147 @@ const { data: horarios } = await useAsyncData('dashboard-horarios', async () => 
   return data ?? []
 })
 
+const { data: sesiones } = await useAsyncData('dashboard-sesiones', async () => {
+  const { data } = await supabase
+    .from('sesiones')
+    .select('id, fecha, estado, franja_horaria_id')
+    .order('fecha', { ascending: true })
+  return data ?? []
+})
+
+const { data: sesionSubtemas } = await useAsyncData('dashboard-sesion-subtemas', async () => {
+  const sesionIds = (sesiones.value ?? []).map(s => s.id)
+  if (!sesionIds.length) return []
+  const { data } = await supabase
+    .from('sesion_subtemas')
+    .select('sesion_id, subtema_id, fraccion')
+    .in('sesion_id', sesionIds)
+  return data ?? []
+})
+
+const { data: subtemasReparto } = await useAsyncData('dashboard-subtemas-reparto', async () => {
+  const subtemaIds = [...new Set((sesionSubtemas.value ?? []).map(ss => ss.subtema_id))]
+  if (!subtemaIds.length) return []
+  const { data } = await supabase.from('subtemas').select('id, nombre').in('id', subtemaIds)
+  return data ?? []
+})
+
+const etiquetaEstado: Record<string, string> = {
+  propuesta: 'Propuesta',
+  confirmada: 'Confirmada',
+  cancelada: 'Cancelada',
+  impartida: 'Impartida'
+}
+
+function detalleSesion(sesion: { id: string, franja_horaria_id: string }) {
+  const franja = horarios.value?.find(f => f.id === sesion.franja_horaria_id)
+  const ga = grupoAsignaturas.value?.find(item => item.id === franja?.grupo_asignatura_id)
+  const grupo = grupos.value?.find(item => item.id === ga?.grupo_id)
+  const asignatura = asignaturas.value?.find(item => item.id === ga?.asignatura_id)
+  const contenido = (sesionSubtemas.value ?? [])
+    .filter(ss => ss.sesion_id === sesion.id)
+    .map((ss) => {
+      const nombre = subtemasReparto.value?.find(s => s.id === ss.subtema_id)?.nombre ?? ''
+      return ss.fraccion < 1 ? `${nombre} (½)` : nombre
+    })
+    .join(', ')
+  return {
+    grupo: grupo?.nombre ?? '',
+    color: grupo?.color ?? '#94a3b8',
+    asignatura: asignatura?.nombre ?? '',
+    contenido
+  }
+}
+
+const vistaReparto = ref<'lista' | 'calendario'>('lista')
+const opcionesVistaReparto = [
+  { label: 'Lista', value: 'lista' },
+  { label: 'Calendario', value: 'calendario' }
+]
+
+const DIAS_SEMANA_CALENDARIO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie']
+const NOMBRES_MES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+]
+
+interface CeldaCalendario {
+  fecha: string
+  dia: number
+  sesiones: { color: string, grupo: string, asignatura: string }[]
+}
+
+interface MesCalendario {
+  etiqueta: string
+  semanas: (CeldaCalendario | null)[][]
+}
+
+const mesesCalendario = computed<MesCalendario[]>(() => {
+  const fechas = (sesiones.value ?? []).map(s => s.fecha)
+  if (!fechas.length) return []
+
+  const sesionesPorFecha = new Map<string, { color: string, grupo: string, asignatura: string }[]>()
+  for (const sesion of sesiones.value ?? []) {
+    const detalle = detalleSesion(sesion)
+    if (!sesionesPorFecha.has(sesion.fecha)) sesionesPorFecha.set(sesion.fecha, [])
+    sesionesPorFecha.get(sesion.fecha)!.push({ color: detalle.color, grupo: detalle.grupo, asignatura: detalle.asignatura })
+  }
+
+  const minFecha = fechas.reduce((a, b) => (a < b ? a : b))
+  const maxFecha = fechas.reduce((a, b) => (a > b ? a : b))
+
+  let cursorAnio = Number(minFecha.slice(0, 4))
+  let cursorMes = Number(minFecha.slice(5, 7)) - 1
+  const finAnio = Number(maxFecha.slice(0, 4))
+  const finMes = Number(maxFecha.slice(5, 7)) - 1
+
+  const meses: MesCalendario[] = []
+
+  while (cursorAnio < finAnio || (cursorAnio === finAnio && cursorMes <= finMes)) {
+    const primerDia = new Date(Date.UTC(cursorAnio, cursorMes, 1))
+    const ultimoDia = new Date(Date.UTC(cursorAnio, cursorMes + 1, 0))
+
+    const semanas: (CeldaCalendario | null)[][] = []
+    let semanaActual: (CeldaCalendario | null)[] = []
+
+    const diaSemanaInicial = (primerDia.getUTCDay() + 6) % 7
+    if (diaSemanaInicial < 5) {
+      for (let i = 0; i < diaSemanaInicial; i++) semanaActual.push(null)
+    }
+
+    for (const d = new Date(primerDia); d <= ultimoDia; d.setUTCDate(d.getUTCDate() + 1)) {
+      const diaSemana = (d.getUTCDay() + 6) % 7
+      if (diaSemana > 4) continue
+
+      if (diaSemana === 0 && semanaActual.length > 0) {
+        semanas.push(semanaActual)
+        semanaActual = []
+      }
+
+      const fechaISO = d.toISOString().slice(0, 10)
+      semanaActual.push({
+        fecha: fechaISO,
+        dia: d.getUTCDate(),
+        sesiones: sesionesPorFecha.get(fechaISO) ?? []
+      })
+    }
+    if (semanaActual.length > 0) {
+      while (semanaActual.length < 5) semanaActual.push(null)
+      semanas.push(semanaActual)
+    }
+
+    meses.push({ etiqueta: `${NOMBRES_MES[cursorMes]} ${cursorAnio}`, semanas })
+
+    cursorMes++
+    if (cursorMes > 11) {
+      cursorMes = 0
+      cursorAnio++
+    }
+  }
+
+  return meses
+})
+
 const dias = [
   { value: 'lunes', label: 'Lunes' },
   { value: 'martes', label: 'Martes' },
@@ -281,6 +422,145 @@ const sinNada = computed(() =>
           class="text-sm text-muted"
         >
           Aún no tienes horarios.
+        </p>
+      </UCard>
+
+      <UCard class="mt-6">
+        <template #header>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="font-semibold">
+              Reparto del curso
+            </h2>
+            <UTabs
+              v-if="sesiones?.length"
+              v-model="vistaReparto"
+              :items="opcionesVistaReparto"
+              :content="false"
+              size="xs"
+            />
+          </div>
+        </template>
+
+        <div v-if="sesiones?.length">
+          <div
+            v-if="vistaReparto === 'lista'"
+            class="max-h-[32rem] overflow-y-auto overflow-x-auto"
+          >
+            <table class="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr class="sticky top-0 bg-default text-left text-muted">
+                  <th class="p-2">
+                    Fecha
+                  </th>
+                  <th class="p-2">
+                    Grupo
+                  </th>
+                  <th class="p-2">
+                    Asignatura
+                  </th>
+                  <th class="p-2">
+                    Contenido
+                  </th>
+                  <th class="p-2">
+                    Estado
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="sesion in sesiones"
+                  :key="sesion.id"
+                  class="border-t border-default"
+                >
+                  <td class="p-2 whitespace-nowrap">
+                    {{ sesion.fecha }}
+                  </td>
+                  <td class="p-2 whitespace-nowrap">
+                    <span class="inline-flex items-center gap-2">
+                      <span
+                        class="size-2.5 shrink-0 rounded-full"
+                        :style="{ backgroundColor: detalleSesion(sesion).color }"
+                      />
+                      {{ detalleSesion(sesion).grupo }}
+                    </span>
+                  </td>
+                  <td class="p-2 whitespace-nowrap">
+                    {{ detalleSesion(sesion).asignatura }}
+                  </td>
+                  <td class="p-2">
+                    {{ detalleSesion(sesion).contenido }}
+                  </td>
+                  <td class="p-2">
+                    <UBadge
+                      :color="sesion.estado === 'confirmada' ? 'success' : 'neutral'"
+                      variant="subtle"
+                    >
+                      {{ etiquetaEstado[sesion.estado] }}
+                    </UBadge>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            v-else
+            class="max-h-[42rem] overflow-y-auto"
+          >
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div
+                v-for="mes in mesesCalendario"
+                :key="mes.etiqueta"
+                class="rounded-lg border border-default p-3"
+              >
+                <p class="mb-2 text-sm font-medium">
+                  {{ mes.etiqueta }}
+                </p>
+                <div class="grid grid-cols-5 gap-1 text-center text-xs text-muted">
+                  <span
+                    v-for="d in DIAS_SEMANA_CALENDARIO"
+                    :key="d"
+                  >
+                    {{ d }}
+                  </span>
+                </div>
+                <div
+                  v-for="(semana, i) in mes.semanas"
+                  :key="i"
+                  class="mt-1 grid grid-cols-5 gap-1"
+                >
+                  <div
+                    v-for="(celda, j) in semana"
+                    :key="j"
+                    class="flex aspect-square flex-col items-center justify-center rounded text-xs"
+                    :class="celda?.sesiones.length ? 'bg-primary/10' : ''"
+                  >
+                    <template v-if="celda">
+                      <span class="text-muted">{{ celda.dia }}</span>
+                      <span
+                        v-if="celda.sesiones.length"
+                        class="mt-0.5 flex gap-0.5"
+                      >
+                        <span
+                          v-for="(s, k) in celda.sesiones.slice(0, 4)"
+                          :key="k"
+                          class="size-1.5 rounded-full"
+                          :style="{ backgroundColor: s.color }"
+                          :title="`${s.grupo} · ${s.asignatura}`"
+                        />
+                      </span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p
+          v-else
+          class="text-sm text-muted"
+        >
+          Todavía no se ha generado el reparto de ninguna asignatura. Entra en un grupo y pulsa "Ver reparto" en la asignatura que quieras repartir.
         </p>
       </UCard>
     </div>

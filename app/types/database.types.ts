@@ -22,6 +22,30 @@ export type Database = {
         }
         Relationships: []
       }
+      reglas_dificultad: {
+        Row: {
+          id: string
+          profesor_id: string
+          dificultad: Database['public']['Enums']['dificultad_subtema']
+          duracion_sesiones: number
+          creado_en: string
+        }
+        Insert: {
+          id?: string
+          profesor_id: string
+          dificultad: Database['public']['Enums']['dificultad_subtema']
+          duracion_sesiones: number
+          creado_en?: string
+        }
+        Update: {
+          id?: string
+          profesor_id?: string
+          dificultad?: Database['public']['Enums']['dificultad_subtema']
+          duracion_sesiones?: number
+          creado_en?: string
+        }
+        Relationships: []
+      }
       asignaturas: {
         Row: {
           id: string
@@ -244,6 +268,54 @@ export type Database = {
         }
         Relationships: []
       }
+      sesiones: {
+        Row: {
+          id: string
+          franja_horaria_id: string
+          fecha: string
+          estado: Database['public']['Enums']['estado_sesion']
+          creado_en: string
+        }
+        Insert: {
+          id?: string
+          franja_horaria_id: string
+          fecha: string
+          estado?: Database['public']['Enums']['estado_sesion']
+          creado_en?: string
+        }
+        Update: {
+          id?: string
+          franja_horaria_id?: string
+          fecha?: string
+          estado?: Database['public']['Enums']['estado_sesion']
+          creado_en?: string
+        }
+        Relationships: []
+      }
+      sesion_subtemas: {
+        Row: {
+          id: string
+          sesion_id: string
+          subtema_id: string
+          fraccion: number
+          creado_en: string
+        }
+        Insert: {
+          id?: string
+          sesion_id: string
+          subtema_id: string
+          fraccion?: number
+          creado_en?: string
+        }
+        Update: {
+          id?: string
+          sesion_id?: string
+          subtema_id?: string
+          fraccion?: number
+          creado_en?: string
+        }
+        Relationships: []
+      }
       periodos_horarios: {
         Row: {
           id: string
@@ -277,6 +349,7 @@ export type Database = {
     Enums: {
       dia_semana: 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
       dificultad_subtema: 'baja' | 'media' | 'alta'
+      estado_sesion: 'propuesta' | 'confirmada' | 'cancelada' | 'impartida'
     }
     CompositeTypes: Record<string, never>
   }
