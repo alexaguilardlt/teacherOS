@@ -153,6 +153,7 @@ export type Database = {
           id: string
           profesor_id: string
           curso_id: string
+          horario_tipo_id: string | null
           nombre: string
           color: string
           creado_en: string
@@ -161,6 +162,7 @@ export type Database = {
           id?: string
           profesor_id: string
           curso_id: string
+          horario_tipo_id?: string | null
           nombre: string
           color?: string
           creado_en?: string
@@ -169,8 +171,30 @@ export type Database = {
           id?: string
           profesor_id?: string
           curso_id?: string
+          horario_tipo_id?: string | null
           nombre?: string
           color?: string
+          creado_en?: string
+        }
+        Relationships: []
+      }
+      horarios_tipo: {
+        Row: {
+          id: string
+          curso_id: string
+          nombre: string
+          creado_en: string
+        }
+        Insert: {
+          id?: string
+          curso_id: string
+          nombre: string
+          creado_en?: string
+        }
+        Update: {
+          id?: string
+          curso_id?: string
+          nombre?: string
           creado_en?: string
         }
         Relationships: []
@@ -200,25 +224,49 @@ export type Database = {
         Row: {
           id: string
           grupo_asignatura_id: string
+          periodo_id: string
           dia_semana: Database['public']['Enums']['dia_semana']
-          hora_inicio: string
-          hora_fin: string
           creado_en: string
         }
         Insert: {
           id?: string
           grupo_asignatura_id: string
+          periodo_id: string
           dia_semana: Database['public']['Enums']['dia_semana']
-          hora_inicio: string
-          hora_fin: string
           creado_en?: string
         }
         Update: {
           id?: string
           grupo_asignatura_id?: string
+          periodo_id?: string
           dia_semana?: Database['public']['Enums']['dia_semana']
+          creado_en?: string
+        }
+        Relationships: []
+      }
+      periodos_horarios: {
+        Row: {
+          id: string
+          horario_tipo_id: string
+          hora_inicio: string
+          hora_fin: string
+          orden: number
+          creado_en: string
+        }
+        Insert: {
+          id?: string
+          horario_tipo_id: string
+          hora_inicio: string
+          hora_fin: string
+          orden?: number
+          creado_en?: string
+        }
+        Update: {
+          id?: string
+          horario_tipo_id?: string
           hora_inicio?: string
           hora_fin?: string
+          orden?: number
           creado_en?: string
         }
         Relationships: []

@@ -26,11 +26,22 @@ export interface FestivoWizard {
   fechaFin: string
 }
 
+export interface PeriodoWizard {
+  clienteId: string
+  horaInicio: string
+  horaFin: string
+}
+
+export interface HorarioTipoWizard {
+  clienteId: string
+  nombre: string
+  periodos: PeriodoWizard[]
+}
+
 export interface FranjaWizard {
   clienteId: string
   diaSemana: DiaSemana
-  horaInicio: string
-  horaFin: string
+  periodoClienteId: string
 }
 
 export interface GrupoAsignaturaWizard {
@@ -42,6 +53,7 @@ export interface GrupoWizard {
   clienteId: string
   nombre: string
   color: string
+  horarioTipoClienteId: string
   asignaturas: GrupoAsignaturaWizard[]
 }
 
@@ -55,6 +67,7 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
       fechaFin: ''
     },
     festivos: [] as FestivoWizard[],
+    horariosTipo: [] as HorarioTipoWizard[],
     asignaturas: [] as AsignaturaWizard[],
     grupos: [] as GrupoWizard[]
   }),
@@ -62,7 +75,13 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
   getters: {
     cursoValido: state =>
       Boolean(state.curso.nombre && state.curso.fechaInicio && state.curso.fechaFin)
-      && state.curso.fechaFin > state.curso.fechaInicio,
+      && state.curso.fechaFin > state.curso.fechaInicio
+      && state.horariosTipo.length > 0
+      && state.horariosTipo.every(ht =>
+        Boolean(ht.nombre)
+        && ht.periodos.length > 0
+        && ht.periodos.every(periodo => periodo.horaInicio && periodo.horaFin && periodo.horaFin > periodo.horaInicio)
+      ),
 
     asignaturasValidas: state =>
       state.asignaturas.length > 0
@@ -72,23 +91,39 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
       state.grupos.length > 0
       && state.grupos.every(grupo =>
         Boolean(grupo.nombre)
+        && Boolean(grupo.horarioTipoClienteId)
         && grupo.asignaturas.length > 0
         && grupo.asignaturas.every(ga =>
           ga.franjas.length > 0
-          && ga.franjas.every(franja => franja.horaFin > franja.horaInicio)
+          && ga.franjas.every(franja => Boolean(franja.periodoClienteId))
         )
       ),
 
     haySolape: (state) => {
+      const periodosPorClienteId = new Map<string, PeriodoWizard>()
+      for (const ht of state.horariosTipo) {
+        for (const periodo of ht.periodos) {
+          periodosPorClienteId.set(periodo.clienteId, periodo)
+        }
+      }
+
       const franjas = state.grupos.flatMap(grupo =>
         grupo.asignaturas.flatMap(ga => ga.franjas)
-      ).filter(franja => franja.horaInicio && franja.horaFin)
+      )
+        .map(franja => ({ diaSemana: franja.diaSemana, periodo: periodosPorClienteId.get(franja.periodoClienteId) }))
+        .filter((franja): franja is { diaSemana: DiaSemana, periodo: PeriodoWizard } =>
+          Boolean(franja.periodo?.horaInicio && franja.periodo?.horaFin)
+        )
 
       for (let i = 0; i < franjas.length; i++) {
         for (let j = i + 1; j < franjas.length; j++) {
           const a = franjas[i]!
           const b = franjas[j]!
-          if (a.diaSemana === b.diaSemana && a.horaInicio < b.horaFin && b.horaInicio < a.horaFin) {
+          if (
+            a.diaSemana === b.diaSemana
+            && a.periodo.horaInicio < b.periodo.horaFin
+            && b.periodo.horaInicio < a.periodo.horaFin
+          ) {
             return true
           }
         }
@@ -101,6 +136,7 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
     reset() {
       this.curso = { nombre: '', fechaInicio: '', fechaFin: '' }
       this.festivos = []
+      this.horariosTipo = []
       this.asignaturas = []
       this.grupos = []
     },
@@ -116,6 +152,43 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
 
     eliminarFestivo(clienteId: string) {
       this.festivos = this.festivos.filter(festivo => festivo.clienteId !== clienteId)
+    },
+
+    agregarHorarioTipo() {
+      this.horariosTipo.push({
+        clienteId: crypto.randomUUID(),
+        nombre: '',
+        periodos: []
+      })
+    },
+
+    eliminarHorarioTipo(clienteId: string) {
+      const periodoIds = new Set(
+        this.horariosTipo.find(ht => ht.clienteId === clienteId)?.periodos.map(p => p.clienteId) ?? []
+      )
+      this.horariosTipo = this.horariosTipo.filter(ht => ht.clienteId !== clienteId)
+      for (const grupo of this.grupos) {
+        if (grupo.horarioTipoClienteId === clienteId) grupo.horarioTipoClienteId = ''
+        for (const ga of grupo.asignaturas) {
+          ga.franjas = ga.franjas.filter(franja => !periodoIds.has(franja.periodoClienteId))
+        }
+      }
+    },
+
+    agregarPeriodo(horarioTipoClienteId: string) {
+      const ht = this.horariosTipo.find(h => h.clienteId === horarioTipoClienteId)
+      ht?.periodos.push({ clienteId: crypto.randomUUID(), horaInicio: '', horaFin: '' })
+    },
+
+    eliminarPeriodo(horarioTipoClienteId: string, periodoClienteId: string) {
+      const ht = this.horariosTipo.find(h => h.clienteId === horarioTipoClienteId)
+      if (!ht) return
+      ht.periodos = ht.periodos.filter(periodo => periodo.clienteId !== periodoClienteId)
+      for (const grupo of this.grupos) {
+        for (const ga of grupo.asignaturas) {
+          ga.franjas = ga.franjas.filter(franja => franja.periodoClienteId !== periodoClienteId)
+        }
+      }
     },
 
     agregarAsignatura() {
@@ -171,6 +244,7 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
         clienteId: crypto.randomUUID(),
         nombre: '',
         color,
+        horarioTipoClienteId: this.horariosTipo[0]?.clienteId ?? '',
         asignaturas: []
       })
     },
@@ -193,11 +267,12 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
     agregarFranja(grupoClienteId: string, asignaturaClienteId: string) {
       const grupo = this.grupos.find(g => g.clienteId === grupoClienteId)
       const ga = grupo?.asignaturas.find(a => a.asignaturaClienteId === asignaturaClienteId)
-      ga?.franjas.push({
+      if (!grupo || !ga) return
+      const ht = this.horariosTipo.find(h => h.clienteId === grupo.horarioTipoClienteId)
+      ga.franjas.push({
         clienteId: crypto.randomUUID(),
         diaSemana: 'lunes',
-        horaInicio: '',
-        horaFin: ''
+        periodoClienteId: ht?.periodos[0]?.clienteId ?? ''
       })
     },
 

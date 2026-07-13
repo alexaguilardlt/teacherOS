@@ -20,6 +20,18 @@ function nombreAsignatura(clienteId: string) {
   return store.asignaturas.find(asignatura => asignatura.clienteId === clienteId)?.nombre ?? ''
 }
 
+function nombreHorarioTipo(clienteId: string) {
+  return store.horariosTipo.find(ht => ht.clienteId === clienteId)?.nombre ?? ''
+}
+
+function etiquetaPeriodo(clienteId: string) {
+  for (const ht of store.horariosTipo) {
+    const periodo = ht.periodos.find(p => p.clienteId === clienteId)
+    if (periodo) return `${periodo.horaInicio}–${periodo.horaFin}`
+  }
+  return ''
+}
+
 async function guardar() {
   if (!user.value) return
 
@@ -49,6 +61,34 @@ async function guardar() {
           fecha_fin: festivo.fechaFin
         })))
       if (errorFestivos) throw errorFestivos
+    }
+
+    const horarioTipoIdPorClienteId = new Map<string, string>()
+    const periodoIdPorClienteId = new Map<string, string>()
+
+    for (const horarioTipo of store.horariosTipo) {
+      const { data: horarioTipoInsertado, error: errorHorarioTipo } = await supabase
+        .from('horarios_tipo')
+        .insert({ curso_id: curso.id, nombre: horarioTipo.nombre })
+        .select('id')
+        .single()
+      if (errorHorarioTipo || !horarioTipoInsertado) throw errorHorarioTipo ?? new Error('horario_tipo')
+      horarioTipoIdPorClienteId.set(horarioTipo.clienteId, horarioTipoInsertado.id)
+
+      for (const [periodoIndex, periodo] of horarioTipo.periodos.entries()) {
+        const { data: periodoInsertado, error: errorPeriodo } = await supabase
+          .from('periodos_horarios')
+          .insert({
+            horario_tipo_id: horarioTipoInsertado.id,
+            hora_inicio: periodo.horaInicio,
+            hora_fin: periodo.horaFin,
+            orden: periodoIndex
+          })
+          .select('id')
+          .single()
+        if (errorPeriodo || !periodoInsertado) throw errorPeriodo ?? new Error('periodo')
+        periodoIdPorClienteId.set(periodo.clienteId, periodoInsertado.id)
+      }
     }
 
     const asignaturaIdPorClienteId = new Map<string, string>()
@@ -90,6 +130,7 @@ async function guardar() {
         .insert({
           profesor_id: user.value.sub,
           curso_id: curso.id,
+          horario_tipo_id: horarioTipoIdPorClienteId.get(grupo.horarioTipoClienteId) ?? null,
           nombre: grupo.nombre,
           color: grupo.color
         })
@@ -114,8 +155,7 @@ async function guardar() {
             .insert(ga.franjas.map(franja => ({
               grupo_asignatura_id: grupoAsignaturaInsertado.id,
               dia_semana: franja.diaSemana,
-              hora_inicio: franja.horaInicio,
-              hora_fin: franja.horaFin
+              periodo_id: periodoIdPorClienteId.get(franja.periodoClienteId)!
             })))
           if (errorFranjas) throw errorFranjas
         }
@@ -160,6 +200,24 @@ async function guardar() {
             :key="festivo.clienteId"
           >
             {{ festivo.nombre || 'Sin nombre' }} ({{ festivo.fechaInicio }} – {{ festivo.fechaFin }})
+          </li>
+        </ul>
+      </div>
+
+      <div
+        v-for="horarioTipo in store.horariosTipo"
+        :key="horarioTipo.clienteId"
+        class="mt-4"
+      >
+        <p class="mb-1 text-sm font-medium">
+          {{ horarioTipo.nombre }}
+        </p>
+        <ul class="text-sm text-muted">
+          <li
+            v-for="periodo in horarioTipo.periodos"
+            :key="periodo.clienteId"
+          >
+            {{ periodo.horaInicio }}–{{ periodo.horaFin }}
           </li>
         </ul>
       </div>
@@ -216,6 +274,7 @@ async function guardar() {
               :style="{ backgroundColor: grupo.color }"
             />
             {{ grupo.nombre }}
+            <span class="text-sm text-muted">· {{ nombreHorarioTipo(grupo.horarioTipoClienteId) }}</span>
           </p>
           <ul class="mt-1 flex flex-col gap-1 pl-4 text-sm text-muted">
             <li
@@ -223,7 +282,7 @@ async function guardar() {
               :key="ga.asignaturaClienteId"
             >
               {{ nombreAsignatura(ga.asignaturaClienteId) }} —
-              {{ ga.franjas.map(f => `${etiquetasDia[f.diaSemana]} ${f.horaInicio}-${f.horaFin}`).join(', ') }}
+              {{ ga.franjas.map(f => `${etiquetasDia[f.diaSemana]} ${etiquetaPeriodo(f.periodoClienteId)}`).join(', ') }}
             </li>
           </ul>
         </div>

@@ -43,30 +43,57 @@ const { data: grupoAsignaturas } = await useAsyncData('dashboard-grupo-asignatur
   return data ?? []
 })
 
-const { data: horarios } = await useAsyncData('dashboard-horarios', async () => {
+const { data: periodos } = await useAsyncData('dashboard-periodos', async () => {
   const { data } = await supabase
-    .from('franjas_horarias')
-    .select('id, grupo_asignatura_id, dia_semana, hora_inicio, hora_fin')
-    .order('dia_semana', { ascending: true })
+    .from('periodos_horarios')
+    .select('id, hora_inicio, hora_fin')
   return data ?? []
 })
 
-const etiquetasDia: Record<string, string> = {
-  lunes: 'Lunes',
-  martes: 'Martes',
-  miercoles: 'Miércoles',
-  jueves: 'Jueves',
-  viernes: 'Viernes',
-  sabado: 'Sábado',
-  domingo: 'Domingo'
-}
+const { data: horarios } = await useAsyncData('dashboard-horarios', async () => {
+  const { data } = await supabase
+    .from('franjas_horarias')
+    .select('id, grupo_asignatura_id, dia_semana, periodo_id')
+  return data ?? []
+})
 
-function detalleFranja(grupoAsignaturaId: string) {
-  const ga = grupoAsignaturas.value?.find(item => item.id === grupoAsignaturaId)
-  const nombreAsignatura = asignaturas.value?.find(item => item.id === ga?.asignatura_id)?.nombre ?? ''
-  const nombreGrupo = grupos.value?.find(item => item.id === ga?.grupo_id)?.nombre ?? ''
-  return `${nombreAsignatura} · ${nombreGrupo}`
-}
+const dias = [
+  { value: 'lunes', label: 'Lunes' },
+  { value: 'martes', label: 'Martes' },
+  { value: 'miercoles', label: 'Miércoles' },
+  { value: 'jueves', label: 'Jueves' },
+  { value: 'viernes', label: 'Viernes' }
+]
+
+// Distintos horarios tipo pueden definir franjas con el mismo rango
+// de horas (ej. el período de 10:30-11:20 en dos ciclos distintos):
+// se agrupan en una sola fila de la cuadrícula por hora real.
+const filasHorario = computed(() => {
+  const vistos = new Map<string, { horaInicio: string, horaFin: string }>()
+  for (const periodo of periodos.value ?? []) {
+    vistos.set(`${periodo.hora_inicio}-${periodo.hora_fin}`, {
+      horaInicio: periodo.hora_inicio,
+      horaFin: periodo.hora_fin
+    })
+  }
+  return [...vistos.values()].sort((a, b) => a.horaInicio.localeCompare(b.horaInicio))
+})
+
+const celdas = computed(() => {
+  const map = new Map<string, { asignatura: string, grupo: string, color: string }>()
+  for (const franja of horarios.value ?? []) {
+    const periodo = periodos.value?.find(item => item.id === franja.periodo_id)
+    if (!periodo) continue
+    const ga = grupoAsignaturas.value?.find(item => item.id === franja.grupo_asignatura_id)
+    const grupo = grupos.value?.find(item => item.id === ga?.grupo_id)
+    map.set(`${periodo.hora_inicio}-${periodo.hora_fin}-${franja.dia_semana}`, {
+      asignatura: asignaturas.value?.find(item => item.id === ga?.asignatura_id)?.nombre ?? '',
+      grupo: grupo?.nombre ?? '',
+      color: grupo?.color ?? '#94a3b8'
+    })
+  }
+  return map
+})
 
 const sinNada = computed(() =>
   (cursos.value?.length ?? 0) === 0
@@ -125,7 +152,7 @@ const sinNada = computed(() =>
         </ul>
       </UCard>
 
-      <div class="grid gap-6 md:grid-cols-3">
+      <div class="mb-6 grid gap-6 md:grid-cols-2">
         <UCard>
           <template #header>
             <h2 class="font-semibold">
@@ -190,34 +217,72 @@ const sinNada = computed(() =>
             Aún no tienes grupos.
           </p>
         </UCard>
-
-        <UCard>
-          <template #header>
-            <h2 class="font-semibold">
-              Horarios
-            </h2>
-          </template>
-          <ul
-            v-if="horarios?.length"
-            class="flex flex-col gap-2"
-          >
-            <li
-              v-for="franja in horarios"
-              :key="franja.id"
-            >
-              <span class="font-medium">{{ etiquetasDia[franja.dia_semana] }}</span>
-              {{ franja.hora_inicio }}–{{ franja.hora_fin }}
-              <span class="text-muted">· {{ detalleFranja(franja.grupo_asignatura_id) }}</span>
-            </li>
-          </ul>
-          <p
-            v-else
-            class="text-sm text-muted"
-          >
-            Aún no tienes horarios.
-          </p>
-        </UCard>
       </div>
+
+      <UCard>
+        <template #header>
+          <h2 class="font-semibold">
+            Horario semanal
+          </h2>
+        </template>
+
+        <div
+          v-if="filasHorario.length"
+          class="overflow-x-auto"
+        >
+          <table class="w-full min-w-[640px] border-collapse text-sm">
+            <thead>
+              <tr>
+                <th class="p-2 text-left text-muted">
+                  Hora
+                </th>
+                <th
+                  v-for="dia in dias"
+                  :key="dia.value"
+                  class="p-2 text-left text-muted"
+                >
+                  {{ dia.label }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="fila in filasHorario"
+                :key="`${fila.horaInicio}-${fila.horaFin}`"
+                class="border-t border-default"
+              >
+                <td class="p-2 align-top whitespace-nowrap text-muted">
+                  {{ fila.horaInicio }}–{{ fila.horaFin }}
+                </td>
+                <td
+                  v-for="dia in dias"
+                  :key="dia.value"
+                  class="p-2 align-top"
+                >
+                  <div
+                    v-if="celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)"
+                    class="rounded-md px-2 py-1 text-white"
+                    :style="{ backgroundColor: celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.color }"
+                  >
+                    <p class="font-medium">
+                      {{ celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.asignatura }}
+                    </p>
+                    <p class="text-xs opacity-90">
+                      {{ celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.grupo }}
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p
+          v-else
+          class="text-sm text-muted"
+        >
+          Aún no tienes horarios.
+        </p>
+      </UCard>
     </div>
   </UContainer>
 </template>

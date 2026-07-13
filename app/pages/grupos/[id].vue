@@ -17,7 +17,7 @@ const opcionesDia = [
 const { data: grupo } = await useAsyncData(`grupo-${grupoId}`, async () => {
   const { data } = await supabase
     .from('grupos')
-    .select('id, nombre, color')
+    .select('id, nombre, color, curso_id, horario_tipo_id')
     .eq('id', grupoId)
     .single()
   return data
@@ -35,6 +35,42 @@ const { data: asignaturas } = await useAsyncData('grupo-edit-asignaturas', async
   return data ?? []
 })
 
+const { data: horariosTipo } = await useAsyncData(`grupo-${grupoId}-horarios-tipo`, async () => {
+  const { data } = await supabase
+    .from('horarios_tipo')
+    .select('id, nombre')
+    .eq('curso_id', grupo.value!.curso_id)
+    .order('creado_en', { ascending: true })
+  return data ?? []
+})
+
+const htIds = (horariosTipo.value ?? []).map(ht => ht.id)
+
+const { data: periodos } = await useAsyncData(`grupo-${grupoId}-periodos`, async () => {
+  if (!htIds.length) return []
+  const { data } = await supabase
+    .from('periodos_horarios')
+    .select('id, horario_tipo_id, hora_inicio, hora_fin')
+    .in('horario_tipo_id', htIds)
+    .order('orden', { ascending: true })
+  return data ?? []
+})
+
+const horarioTipoId = ref(grupo.value.horario_tipo_id ?? '')
+
+const opcionesHorarioTipo = computed(() =>
+  (horariosTipo.value ?? []).map(ht => ({ label: ht.nombre, value: ht.id }))
+)
+
+const opcionesPeriodo = computed(() =>
+  (periodos.value ?? [])
+    .filter(periodo => periodo.horario_tipo_id === horarioTipoId.value)
+    .map(periodo => ({
+      label: `${periodo.hora_inicio}–${periodo.hora_fin}`,
+      value: periodo.id
+    }))
+)
+
 const { data: grupoAsignaturasIniciales } = await useAsyncData(`grupo-${grupoId}-grupo-asignaturas`, async () => {
   const { data } = await supabase
     .from('grupo_asignaturas')
@@ -49,7 +85,7 @@ const { data: franjasIniciales } = await useAsyncData(`grupo-${grupoId}-franjas`
   if (!gaIds.length) return []
   const { data } = await supabase
     .from('franjas_horarias')
-    .select('id, grupo_asignatura_id, dia_semana, hora_inicio, hora_fin')
+    .select('id, grupo_asignatura_id, dia_semana, periodo_id')
     .in('grupo_asignatura_id', gaIds)
   return data ?? []
 })
@@ -64,8 +100,7 @@ const seleccion = ref((grupoAsignaturasIniciales.value ?? []).map(ga => ({
     .map(franja => ({
       clienteId: crypto.randomUUID(),
       diaSemana: franja.dia_semana,
-      horaInicio: franja.hora_inicio,
-      horaFin: franja.hora_fin
+      periodoId: franja.periodo_id
     }))
 })))
 
@@ -86,8 +121,7 @@ function agregarFranja(asignaturaId: string) {
   seleccionDe(asignaturaId)?.franjas.push({
     clienteId: crypto.randomUUID(),
     diaSemana: 'lunes',
-    horaInicio: '',
-    horaFin: ''
+    periodoId: periodos.value?.[0]?.id ?? ''
   })
 }
 
@@ -100,13 +134,13 @@ function eliminarFranja(asignaturaId: string, franjaClienteId: string) {
 const haySolape = computed(() => {
   const franjas = seleccion.value
     .flatMap(s => s.franjas)
-    .filter(franja => franja.horaInicio && franja.horaFin)
+    .filter(franja => franja.periodoId)
 
   for (let i = 0; i < franjas.length; i++) {
     for (let j = i + 1; j < franjas.length; j++) {
       const a = franjas[i]!
       const b = franjas[j]!
-      if (a.diaSemana === b.diaSemana && a.horaInicio < b.horaFin && b.horaInicio < a.horaFin) {
+      if (a.diaSemana === b.diaSemana && a.periodoId === b.periodoId) {
         return true
       }
     }
@@ -124,7 +158,7 @@ async function guardar() {
   try {
     const { error: errorGrupo } = await supabase
       .from('grupos')
-      .update({ nombre: nombre.value, color: color.value })
+      .update({ nombre: nombre.value, color: color.value, horario_tipo_id: horarioTipoId.value || null })
       .eq('id', grupoId)
     if (errorGrupo) throw errorGrupo
 
@@ -148,8 +182,7 @@ async function guardar() {
           .insert(s.franjas.map(franja => ({
             grupo_asignatura_id: gaInsertada.id,
             dia_semana: franja.diaSemana,
-            hora_inicio: franja.horaInicio,
-            hora_fin: franja.horaFin
+            periodo_id: franja.periodoId
           })))
         if (errorFranjas) throw errorFranjas
       }
@@ -207,6 +240,18 @@ async function eliminarGrupo() {
           >
         </UFormField>
       </div>
+
+      <UFormField
+        label="Horario que sigue este grupo"
+        class="mt-3"
+      >
+        <USelect
+          v-model="horarioTipoId"
+          :items="opcionesHorarioTipo"
+          value-key="value"
+          class="w-full"
+        />
+      </UFormField>
     </UCard>
 
     <p
@@ -234,7 +279,7 @@ async function eliminarGrupo() {
         <div
           v-for="franja in seleccionDe(asignatura.id)!.franjas"
           :key="franja.clienteId"
-          class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
+          class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
         >
           <UFormField label="Día">
             <USelect
@@ -245,18 +290,11 @@ async function eliminarGrupo() {
             />
           </UFormField>
 
-          <UFormField label="Hora inicio">
-            <UInput
-              v-model="franja.horaInicio"
-              type="time"
-              class="w-full"
-            />
-          </UFormField>
-
-          <UFormField label="Hora fin">
-            <UInput
-              v-model="franja.horaFin"
-              type="time"
+          <UFormField label="Franja horaria">
+            <USelect
+              v-model="franja.periodoId"
+              :items="opcionesPeriodo"
+              value-key="value"
               class="w-full"
             />
           </UFormField>

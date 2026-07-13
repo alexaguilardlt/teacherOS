@@ -26,6 +26,27 @@ const { data: festivosIniciales } = await useAsyncData(`curso-${cursoId}-festivo
   return data ?? []
 })
 
+const { data: horariosTipoIniciales } = await useAsyncData(`curso-${cursoId}-horarios-tipo`, async () => {
+  const { data } = await supabase
+    .from('horarios_tipo')
+    .select('id, nombre')
+    .eq('curso_id', cursoId)
+    .order('creado_en', { ascending: true })
+  return data ?? []
+})
+
+const htIds = (horariosTipoIniciales.value ?? []).map(ht => ht.id)
+
+const { data: periodosIniciales } = await useAsyncData(`curso-${cursoId}-periodos`, async () => {
+  if (!htIds.length) return []
+  const { data } = await supabase
+    .from('periodos_horarios')
+    .select('id, horario_tipo_id, hora_inicio, hora_fin')
+    .in('horario_tipo_id', htIds)
+    .order('orden', { ascending: true })
+  return data ?? []
+})
+
 const state = reactive({
   nombre: curso.value.nombre,
   fechaInicio: curso.value.fecha_inicio,
@@ -46,6 +67,46 @@ function agregarFestivo() {
 function eliminarFestivo(clienteId: string) {
   festivos.value = festivos.value.filter(festivo => festivo.clienteId !== clienteId)
 }
+
+const horariosTipo = ref((horariosTipoIniciales.value ?? []).map(ht => ({
+  id: ht.id as string | null,
+  clienteId: crypto.randomUUID(),
+  nombre: ht.nombre,
+  periodos: (periodosIniciales.value ?? [])
+    .filter(periodo => periodo.horario_tipo_id === ht.id)
+    .map(periodo => ({
+      id: periodo.id as string | null,
+      clienteId: crypto.randomUUID(),
+      horaInicio: periodo.hora_inicio,
+      horaFin: periodo.hora_fin
+    }))
+})))
+
+function agregarHorarioTipo() {
+  horariosTipo.value.push({ id: null, clienteId: crypto.randomUUID(), nombre: '', periodos: [] })
+}
+
+function eliminarHorarioTipo(clienteId: string) {
+  horariosTipo.value = horariosTipo.value.filter(ht => ht.clienteId !== clienteId)
+}
+
+function agregarPeriodo(horarioTipoClienteId: string) {
+  const ht = horariosTipo.value.find(h => h.clienteId === horarioTipoClienteId)
+  ht?.periodos.push({ id: null, clienteId: crypto.randomUUID(), horaInicio: '', horaFin: '' })
+}
+
+function eliminarPeriodo(horarioTipoClienteId: string, periodoClienteId: string) {
+  const ht = horariosTipo.value.find(h => h.clienteId === horarioTipoClienteId)
+  if (!ht) return
+  ht.periodos = ht.periodos.filter(periodo => periodo.clienteId !== periodoClienteId)
+}
+
+const horariosTipoValidos = computed(() =>
+  horariosTipo.value.every(ht =>
+    Boolean(ht.nombre)
+    && ht.periodos.every(periodo => periodo.horaInicio && periodo.horaFin && periodo.horaFin > periodo.horaInicio)
+  )
+)
 
 const guardando = ref(false)
 const errorMessage = ref('')
@@ -81,6 +142,76 @@ async function guardar() {
           fecha_fin: festivo.fechaFin
         })))
       if (errorFestivos) throw errorFestivos
+    }
+
+    // Los horarios tipo y sus períodos se actualizan en vez de
+    // borrar-y-recrear: si se recreasen con un id nuevo, los grupos
+    // que ya siguen ese horario, o las franjas que ya usan ese
+    // período (FKs con ON DELETE CASCADE / SET NULL), se romperían.
+    const idsOriginalesHT = new Set((horariosTipoIniciales.value ?? []).map(ht => ht.id))
+    const idsActualesHT = new Set(horariosTipo.value.filter(ht => ht.id).map(ht => ht.id as string))
+    const idsAEliminarHT = [...idsOriginalesHT].filter(id => !idsActualesHT.has(id))
+
+    if (idsAEliminarHT.length) {
+      const { error: errorEliminarHT } = await supabase
+        .from('horarios_tipo')
+        .delete()
+        .in('id', idsAEliminarHT)
+      if (errorEliminarHT) throw errorEliminarHT
+    }
+
+    for (const horarioTipo of horariosTipo.value) {
+      let horarioTipoId = horarioTipo.id
+
+      if (horarioTipoId) {
+        const { error: errorActualizarHT } = await supabase
+          .from('horarios_tipo')
+          .update({ nombre: horarioTipo.nombre })
+          .eq('id', horarioTipoId)
+        if (errorActualizarHT) throw errorActualizarHT
+      } else {
+        const { data: htInsertado, error: errorNuevoHT } = await supabase
+          .from('horarios_tipo')
+          .insert({ curso_id: cursoId, nombre: horarioTipo.nombre })
+          .select('id')
+          .single()
+        if (errorNuevoHT || !htInsertado) throw errorNuevoHT ?? new Error('horario_tipo')
+        horarioTipoId = htInsertado.id
+      }
+
+      const idsOriginalesP = new Set(
+        (periodosIniciales.value ?? []).filter(p => p.horario_tipo_id === horarioTipo.id).map(p => p.id)
+      )
+      const idsActualesP = new Set(horarioTipo.periodos.filter(p => p.id).map(p => p.id as string))
+      const idsAEliminarP = [...idsOriginalesP].filter(id => !idsActualesP.has(id))
+
+      if (idsAEliminarP.length) {
+        const { error: errorEliminarP } = await supabase
+          .from('periodos_horarios')
+          .delete()
+          .in('id', idsAEliminarP)
+        if (errorEliminarP) throw errorEliminarP
+      }
+
+      for (const [periodoIndex, periodo] of horarioTipo.periodos.entries()) {
+        if (periodo.id) {
+          const { error: errorActualizarPeriodo } = await supabase
+            .from('periodos_horarios')
+            .update({ hora_inicio: periodo.horaInicio, hora_fin: periodo.horaFin, orden: periodoIndex })
+            .eq('id', periodo.id)
+          if (errorActualizarPeriodo) throw errorActualizarPeriodo
+        } else {
+          const { error: errorNuevoPeriodo } = await supabase
+            .from('periodos_horarios')
+            .insert({
+              horario_tipo_id: horarioTipoId,
+              hora_inicio: periodo.horaInicio,
+              hora_fin: periodo.horaFin,
+              orden: periodoIndex
+            })
+          if (errorNuevoPeriodo) throw errorNuevoPeriodo
+        }
+      }
     }
 
     await navigateTo('/dashboard')
@@ -127,6 +258,99 @@ async function guardar() {
         </UFormField>
       </div>
     </UCard>
+
+    <p
+      v-if="!horariosTipo.length"
+      class="mb-6 text-sm text-muted"
+    >
+      No hay horarios tipo añadidos.
+    </p>
+
+    <UCard
+      v-for="horarioTipo in horariosTipo"
+      :key="horarioTipo.clienteId"
+      class="mb-6"
+    >
+      <template #header>
+        <div class="flex items-end gap-3">
+          <UFormField
+            label="Nombre del horario"
+            class="flex-1"
+          >
+            <UInput
+              v-model="horarioTipo.nombre"
+              placeholder="ESO 1º-2º"
+              class="w-full"
+            />
+          </UFormField>
+          <UButton
+            icon="i-lucide-trash-2"
+            color="neutral"
+            variant="ghost"
+            aria-label="Eliminar horario tipo"
+            @click="eliminarHorarioTipo(horarioTipo.clienteId)"
+          />
+        </div>
+      </template>
+
+      <div class="flex flex-col gap-4">
+        <p
+          v-if="!horarioTipo.periodos.length"
+          class="text-sm text-muted"
+        >
+          No hay franjas añadidas.
+        </p>
+
+        <div
+          v-for="periodo in horarioTipo.periodos"
+          :key="periodo.clienteId"
+          class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+        >
+          <UFormField label="Hora inicio">
+            <UInput
+              v-model="periodo.horaInicio"
+              type="time"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UFormField label="Hora fin">
+            <UInput
+              v-model="periodo.horaFin"
+              type="time"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UButton
+            icon="i-lucide-trash-2"
+            color="neutral"
+            variant="ghost"
+            aria-label="Eliminar franja"
+            @click="eliminarPeriodo(horarioTipo.clienteId, periodo.clienteId)"
+          />
+        </div>
+
+        <UButton
+          icon="i-lucide-plus"
+          color="neutral"
+          variant="subtle"
+          class="self-start"
+          @click="agregarPeriodo(horarioTipo.clienteId)"
+        >
+          Añadir franja horaria
+        </UButton>
+      </div>
+    </UCard>
+
+    <UButton
+      icon="i-lucide-plus"
+      variant="subtle"
+      class="mb-8"
+      @click="agregarHorarioTipo()"
+    >
+      Añadir horario tipo
+    </UButton>
 
     <UCard class="mb-6">
       <template #header>
@@ -194,6 +418,14 @@ async function guardar() {
     </UCard>
 
     <UAlert
+      v-if="!horariosTipoValidos"
+      color="error"
+      variant="subtle"
+      title="Completa el nombre y las horas de inicio/fin de todos los horarios y franjas antes de guardar."
+      class="mb-6"
+    />
+
+    <UAlert
       v-if="errorMessage"
       color="error"
       variant="subtle"
@@ -213,6 +445,7 @@ async function guardar() {
       </UButton>
 
       <UButton
+        :disabled="!horariosTipoValidos"
         :loading="guardando"
         @click="guardar"
       >

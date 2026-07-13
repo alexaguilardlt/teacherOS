@@ -15,6 +15,21 @@ function asignaturaEnGrupo(grupoClienteId: string, asignaturaClienteId: string) 
   const grupo = store.grupos.find(g => g.clienteId === grupoClienteId)
   return grupo?.asignaturas.find(ga => ga.asignaturaClienteId === asignaturaClienteId)
 }
+
+const opcionesHorarioTipo = computed(() =>
+  store.horariosTipo.map(ht => ({
+    label: ht.nombre || 'Horario sin nombre',
+    value: ht.clienteId
+  }))
+)
+
+function opcionesPeriodo(horarioTipoClienteId: string) {
+  const ht = store.horariosTipo.find(h => h.clienteId === horarioTipoClienteId)
+  return (ht?.periodos ?? []).map(periodo => ({
+    label: `${periodo.horaInicio}–${periodo.horaFin}`,
+    value: periodo.clienteId
+  }))
+}
 </script>
 
 <template>
@@ -69,6 +84,18 @@ function asignaturaEnGrupo(grupoClienteId: string, asignaturaClienteId: string) 
             @click="store.eliminarGrupo(grupo.clienteId)"
           />
         </div>
+
+        <UFormField
+          label="Horario que sigue este grupo"
+          class="mt-3"
+        >
+          <USelect
+            v-model="grupo.horarioTipoClienteId"
+            :items="opcionesHorarioTipo"
+            value-key="value"
+            class="w-full"
+          />
+        </UFormField>
       </template>
 
       <div class="flex flex-col gap-4">
@@ -90,7 +117,7 @@ function asignaturaEnGrupo(grupoClienteId: string, asignaturaClienteId: string) 
             <div
               v-for="franja in asignaturaEnGrupo(grupo.clienteId, asignatura.clienteId)!.franjas"
               :key="franja.clienteId"
-              class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
+              class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
             >
               <UFormField label="Día">
                 <USelect
@@ -101,18 +128,11 @@ function asignaturaEnGrupo(grupoClienteId: string, asignaturaClienteId: string) 
                 />
               </UFormField>
 
-              <UFormField label="Hora inicio">
-                <UInput
-                  v-model="franja.horaInicio"
-                  type="time"
-                  class="w-full"
-                />
-              </UFormField>
-
-              <UFormField label="Hora fin">
-                <UInput
-                  v-model="franja.horaFin"
-                  type="time"
+              <UFormField label="Franja horaria">
+                <USelect
+                  v-model="franja.periodoClienteId"
+                  :items="opcionesPeriodo(grupo.horarioTipoClienteId)"
+                  value-key="value"
                   class="w-full"
                 />
               </UFormField>
