@@ -104,15 +104,21 @@ export function useDashboardReparto() {
     return data ?? []
   })
 
-  const { data: sesiones } = useAsyncData('dashboard-sesiones', async () => {
+  const sesionesAsyncData = useAsyncData('dashboard-sesiones', async () => {
     const { data } = await supabase
       .from('sesiones')
       .select('id, fecha, estado, franja_horaria_id')
       .order('fecha', { ascending: true })
     return data ?? []
   })
+  const { data: sesiones } = sesionesAsyncData
 
-  const { data: sesionSubtemas } = useAsyncData('dashboard-sesion-subtemas', async () => {
+  // Estas tres dependen unas de otras (sesiones -> sesion_subtemas -> subtemas ->
+  // temas). En vez de usar `watch` para re-disparar el fetch cuando la anterior
+  // resuelve, cada una espera explícitamente a que la anterior termine antes de
+  // leer su `.value`: es más predecible que depender del reactivity timing.
+  const sesionSubtemasAsyncData = useAsyncData('dashboard-sesion-subtemas', async () => {
+    await sesionesAsyncData
     const sesionIds = (sesiones.value ?? []).map(s => s.id)
     if (!sesionIds.length) return []
     const { data } = await supabase
@@ -120,21 +126,25 @@ export function useDashboardReparto() {
       .select('sesion_id, subtema_id, fraccion')
       .in('sesion_id', sesionIds)
     return data ?? []
-  }, { watch: [sesiones] })
+  })
+  const { data: sesionSubtemas } = sesionSubtemasAsyncData
 
-  const { data: subtemasReparto } = useAsyncData('dashboard-subtemas-reparto', async () => {
+  const subtemasRepartoAsyncData = useAsyncData('dashboard-subtemas-reparto', async () => {
+    await sesionSubtemasAsyncData
     const subtemaIds = [...new Set((sesionSubtemas.value ?? []).map(ss => ss.subtema_id))]
     if (!subtemaIds.length) return []
     const { data } = await supabase.from('subtemas').select('id, nombre, tema_id').in('id', subtemaIds)
     return data ?? []
-  }, { watch: [sesionSubtemas] })
+  })
+  const { data: subtemasReparto } = subtemasRepartoAsyncData
 
   const { data: temasReparto } = useAsyncData('dashboard-temas-reparto', async () => {
+    await subtemasRepartoAsyncData
     const temaIds = [...new Set((subtemasReparto.value ?? []).map(s => s.tema_id))]
     if (!temaIds.length) return []
     const { data } = await supabase.from('temas').select('id, nombre').in('id', temaIds)
     return data ?? []
-  }, { watch: [subtemasReparto] })
+  })
 
   const actualizandoEstadoId = ref<string | null>(null)
 
