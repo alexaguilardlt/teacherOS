@@ -1,8 +1,8 @@
 allowBuilds:
   '@parcel/watcher': false
   '@tailwindcss/oxide': false
-  core-js: set this to true or false
+  core-js: false
   esbuild: false
-  sharp: set this to true or false
+  sharp: true
   unrs-resolver: false
   vue-demi: false
