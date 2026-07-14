@@ -2,6 +2,7 @@
 const {
   profesor,
   cursos,
+  festivos,
   asignaturas,
   grupos,
   sesiones,
@@ -17,6 +18,8 @@ const {
   celdas,
   sinNada
 } = useDashboardReparto()
+
+const { previsualizar, confirmar } = useRedistribucion()
 
 const sidebarAbierto = ref(true)
 const vistaReparto = ref<'lista' | 'calendario'>('lista')
@@ -41,6 +44,67 @@ const sesionesDelDiaSeleccionado = computed(() => {
     .filter(s => s.fecha === diaSeleccionado.value)
     .map(s => detalleSesion(s))
 })
+
+const diaSeleccionadoEsFestivo = computed(() => {
+  if (!diaSeleccionado.value) return false
+  return (festivos.value ?? []).some(f => diaSeleccionado.value! >= f.fecha_inicio && diaSeleccionado.value! <= f.fecha_fin)
+})
+
+const modalFestivoAbierto = ref(false)
+const nuevoFestivoNombre = ref('')
+const nuevoFestivoFechaFin = ref('')
+const previews = ref<PreviewGrupoAsignatura[] | null>(null)
+const previsualizando = ref(false)
+const confirmando = ref(false)
+const errorRedistribucion = ref('')
+
+function abrirModalFestivo() {
+  if (!diaSeleccionado.value) return
+  nuevoFestivoNombre.value = ''
+  nuevoFestivoFechaFin.value = diaSeleccionado.value
+  previews.value = null
+  errorRedistribucion.value = ''
+  modalFestivoAbierto.value = true
+}
+
+async function onPrevisualizar() {
+  const cursoId = cursos.value?.[0]?.id
+  if (!diaSeleccionado.value || !cursoId) return
+
+  previsualizando.value = true
+  errorRedistribucion.value = ''
+  try {
+    previews.value = await previsualizar(cursoId, {
+      fechaInicio: diaSeleccionado.value,
+      fechaFin: nuevoFestivoFechaFin.value || diaSeleccionado.value
+    })
+  } catch (e) {
+    errorRedistribucion.value = (e as { message?: string })?.message || 'No se ha podido calcular la redistribución.'
+  } finally {
+    previsualizando.value = false
+  }
+}
+
+async function onConfirmarRedistribucion() {
+  const cursoId = cursos.value?.[0]?.id
+  if (!diaSeleccionado.value || !cursoId || !previews.value) return
+
+  confirmando.value = true
+  errorRedistribucion.value = ''
+  try {
+    await confirmar(
+      cursoId,
+      { nombre: nuevoFestivoNombre.value, fechaInicio: diaSeleccionado.value, fechaFin: nuevoFestivoFechaFin.value || diaSeleccionado.value },
+      previews.value
+    )
+    modalFestivoAbierto.value = false
+    await refreshNuxtData()
+  } catch (e) {
+    errorRedistribucion.value = (e as { message?: string })?.message || 'No se ha podido confirmar la redistribución.'
+  } finally {
+    confirmando.value = false
+  }
+}
 </script>
 
 <template>
@@ -433,9 +497,20 @@ const sesionesDelDiaSeleccionado = computed(() => {
               <div class="w-full shrink-0 lg:w-80">
                 <UCard>
                   <template #header>
-                    <h3 class="text-sm font-semibold">
-                      {{ diaSeleccionado ?? 'Selecciona un día' }}
-                    </h3>
+                    <div class="flex items-center justify-between gap-2">
+                      <h3 class="text-sm font-semibold">
+                        {{ diaSeleccionado ?? 'Selecciona un día' }}
+                      </h3>
+                      <UButton
+                        v-if="diaSeleccionado && !diaSeleccionadoEsFestivo"
+                        size="xs"
+                        color="neutral"
+                        variant="subtle"
+                        @click="abrirModalFestivo"
+                      >
+                        Marcar como no lectivo
+                      </UButton>
+                    </div>
                   </template>
 
                   <p
@@ -510,5 +585,118 @@ const sesionesDelDiaSeleccionado = computed(() => {
         </UCard>
       </main>
     </div>
+
+    <UModal
+      v-model:open="modalFestivoAbierto"
+      title="Marcar día como no lectivo"
+    >
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <p class="text-sm text-muted">
+            Se marcará el <strong>{{ diaSeleccionado }}</strong> (y las fechas hasta la de fin) como no lectivo.
+            Solo se reorganizan las asignaturas que tuvieran clase alguno de esos días; el resto no se toca.
+            Las sesiones ya pasadas se mantienen igual.
+          </p>
+
+          <div v-if="sesionesDelDiaSeleccionado.length">
+            <p class="mb-2 text-sm font-medium">
+              Lo que tocaba dar ese día:
+            </p>
+            <ul class="flex flex-col gap-1 text-sm">
+              <li
+                v-for="(detalle, i) in sesionesDelDiaSeleccionado"
+                :key="i"
+              >
+                <span
+                  class="size-2 inline-block shrink-0 rounded-full"
+                  :style="{ backgroundColor: detalle.color }"
+                />
+                <span class="text-muted">{{ detalle.grupo }} · {{ detalle.asignatura }} — </span>{{ detalle.contenido }}
+              </li>
+            </ul>
+          </div>
+
+          <UFormField label="Motivo (opcional)">
+            <UInput
+              v-model="nuevoFestivoNombre"
+              placeholder="Ausencia médica"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UFormField label="Hasta">
+            <UInput
+              v-model="nuevoFestivoFechaFin"
+              type="date"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UButton
+            :loading="previsualizando"
+            @click="onPrevisualizar"
+          >
+            Previsualizar redistribución
+          </UButton>
+
+          <UAlert
+            v-if="errorRedistribucion"
+            color="error"
+            variant="subtle"
+            :title="errorRedistribucion"
+          />
+
+          <div v-if="previews">
+            <p
+              v-if="!previews.length"
+              class="text-sm text-muted"
+            >
+              Ninguna asignatura tiene sesiones futuras que reorganizar a partir de esa fecha.
+            </p>
+            <div
+              v-else
+              class="flex flex-col gap-3"
+            >
+              <div
+                v-for="preview in previews"
+                :key="preview.grupoAsignaturaId"
+                class="rounded-lg border border-default p-3 text-sm"
+              >
+                <p class="font-medium">
+                  {{ preview.asignaturaNombre }} · {{ preview.grupoNombre }}
+                </p>
+                <p class="text-muted">
+                  {{ preview.sesionesAEliminarIds.length }} sesiones futuras se reorganizan en {{ preview.sesionesNuevas.length }} nuevas sesiones.
+                </p>
+                <p
+                  v-if="preview.subtemasNoAsignados.length"
+                  class="text-error"
+                >
+                  No caben en lo que queda de curso: {{ preview.subtemasNoAsignados.join(', ') }}.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <template #footer>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          :disabled="confirmando"
+          @click="modalFestivoAbierto = false"
+        >
+          Cancelar
+        </UButton>
+        <UButton
+          v-if="previews"
+          :loading="confirmando"
+          @click="onConfirmarRedistribucion"
+        >
+          Confirmar
+        </UButton>
+      </template>
+    </UModal>
   </div>
 </template>
