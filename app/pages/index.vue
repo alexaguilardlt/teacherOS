@@ -36,6 +36,21 @@ const semanasEjemplo: CeldaEjemplo[][] = [
   ]
 ]
 
+const pasos = [
+  {
+    titulo: 'Crea tu curso',
+    descripcion: 'Define las fechas del curso, los festivos y los horarios de tus grupos.'
+  },
+  {
+    titulo: 'Añade el temario',
+    descripcion: 'Organiza cada asignatura en temas y puntos, marcando la dificultad de cada uno.'
+  },
+  {
+    titulo: 'Deja que se reparta solo',
+    descripcion: 'teacherOS distribuye las sesiones a lo largo del curso y las reajusta si marcas un día como no lectivo.'
+  }
+]
+
 const puntosFuertes = [
   {
     icon: 'i-lucide-calendar-clock',
@@ -105,6 +120,29 @@ const puntosFuertes = [
             >
               {{ sesion.grupo }}
             </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-20">
+        <h2 class="text-center text-2xl font-bold">
+          Cómo funciona
+        </h2>
+        <div class="mt-10 grid gap-8 sm:grid-cols-3">
+          <div
+            v-for="(paso, i) in pasos"
+            :key="paso.titulo"
+            class="flex flex-col items-start gap-3"
+          >
+            <div class="bg-primary flex size-10 items-center justify-center rounded-full font-semibold text-white">
+              {{ i + 1 }}
+            </div>
+            <h3 class="font-semibold">
+              {{ paso.titulo }}
+            </h3>
+            <p class="text-sm text-muted">
+              {{ paso.descripcion }}
+            </p>
           </div>
         </div>
       </div>
