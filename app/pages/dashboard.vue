@@ -110,9 +110,19 @@ const sesionesDelDiaSeleccionado = computed(() => {
 
         <UCard>
           <template #header>
-            <h2 class="font-semibold">
-              Asignaturas
-            </h2>
+            <div class="flex items-center justify-between">
+              <h2 class="font-semibold">
+                Asignaturas
+              </h2>
+              <UButton
+                to="/asignaturas/nueva"
+                icon="i-lucide-plus"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                aria-label="Nueva asignatura"
+              />
+            </div>
           </template>
           <ul
             v-if="asignaturas?.length"
@@ -140,9 +150,19 @@ const sesionesDelDiaSeleccionado = computed(() => {
 
         <UCard>
           <template #header>
-            <h2 class="font-semibold">
-              Grupos
-            </h2>
+            <div class="flex items-center justify-between">
+              <h2 class="font-semibold">
+                Grupos
+              </h2>
+              <UButton
+                to="/grupos/nuevo"
+                icon="i-lucide-plus"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                aria-label="Nuevo grupo"
+              />
+            </div>
           </template>
           <ul
             v-if="grupos?.length"

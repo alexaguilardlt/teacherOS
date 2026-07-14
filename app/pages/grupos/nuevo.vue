@@ -1,42 +1,35 @@
 <script setup lang="ts">
-const route = useRoute()
-const grupoId = route.params.id as string
-
+const user = useSupabaseUser()
 const supabase = useSupabaseClient()
 
-const { data: grupo } = await useAsyncData(`grupo-${grupoId}`, async () => {
+const { data: cursos } = await useAsyncData('grupo-nuevo-cursos', async () => {
   const { data } = await supabase
-    .from('grupos')
-    .select('id, nombre, color, curso_id, horario_tipo_id')
-    .eq('id', grupoId)
-    .single()
-  return data
-})
-
-if (!grupo.value) {
-  throw createError({ statusCode: 404, statusMessage: 'Grupo no encontrado' })
-}
-
-const { data: asignaturas } = await useAsyncData('grupo-edit-asignaturas', async () => {
-  const { data } = await supabase
-    .from('asignaturas')
+    .from('cursos')
     .select('id, nombre')
     .order('creado_en', { ascending: false })
   return data ?? []
 })
 
-const { data: horariosTipo } = await useAsyncData(`grupo-${grupoId}-horarios-tipo`, async () => {
+if (!cursos.value?.length) {
+  throw createError({ statusCode: 404, statusMessage: 'Todavía no tienes ningún curso creado' })
+}
+
+const cursoId = ref(cursos.value[0]!.id)
+
+const opcionesCurso = computed(() =>
+  (cursos.value ?? []).map(curso => ({ label: curso.nombre, value: curso.id }))
+)
+
+const { data: horariosTipo } = await useAsyncData('grupo-nuevo-horarios-tipo', async () => {
   const { data } = await supabase
     .from('horarios_tipo')
-    .select('id, nombre')
-    .eq('curso_id', grupo.value!.curso_id)
+    .select('id, curso_id, nombre')
     .order('creado_en', { ascending: true })
   return data ?? []
 })
 
-const htIds = (horariosTipo.value ?? []).map(ht => ht.id)
-
-const { data: periodos } = await useAsyncData(`grupo-${grupoId}-periodos`, async () => {
+const { data: periodos } = await useAsyncData('grupo-nuevo-periodos', async () => {
+  const htIds = (horariosTipo.value ?? []).map(ht => ht.id)
   if (!htIds.length) return []
   const { data } = await supabase
     .from('periodos_horarios')
@@ -46,76 +39,59 @@ const { data: periodos } = await useAsyncData(`grupo-${grupoId}-periodos`, async
   return data ?? []
 })
 
-const horarioTipoId = ref(grupo.value.horario_tipo_id ?? '')
+const { data: asignaturas } = await useAsyncData('grupo-nuevo-asignaturas', async () => {
+  const { data } = await supabase
+    .from('asignaturas')
+    .select('id, nombre')
+    .order('creado_en', { ascending: false })
+  return data ?? []
+})
+
+const horarioTipoId = ref('')
+
+watch(cursoId, () => {
+  horarioTipoId.value = ''
+})
 
 const opcionesHorarioTipo = computed(() =>
-  (horariosTipo.value ?? []).map(ht => ({ label: ht.nombre, value: ht.id }))
+  (horariosTipo.value ?? [])
+    .filter(ht => ht.curso_id === cursoId.value)
+    .map(ht => ({ label: ht.nombre, value: ht.id }))
 )
 
-const { data: grupoAsignaturasIniciales } = await useAsyncData(`grupo-${grupoId}-grupo-asignaturas`, async () => {
-  const { data } = await supabase
-    .from('grupo_asignaturas')
-    .select('id, asignatura_id')
-    .eq('grupo_id', grupoId)
-  return data ?? []
-})
-
-const gaIds = (grupoAsignaturasIniciales.value ?? []).map(ga => ga.id)
-
-const { data: franjasIniciales } = await useAsyncData(`grupo-${grupoId}-franjas`, async () => {
-  if (!gaIds.length) return []
-  const { data } = await supabase
-    .from('franjas_horarias')
-    .select('id, grupo_asignatura_id, dia_semana, periodo_id')
-    .in('grupo_asignatura_id', gaIds)
-  return data ?? []
-})
-
-const nombre = ref(grupo.value.nombre)
-const color = ref(grupo.value.color)
-
-const seleccionInicial = (grupoAsignaturasIniciales.value ?? []).map(ga => ({
-  asignaturaId: ga.asignatura_id,
-  franjas: (franjasIniciales.value ?? [])
-    .filter(franja => franja.grupo_asignatura_id === ga.id)
-    .map(franja => ({
-      clienteId: crypto.randomUUID(),
-      diaSemana: franja.dia_semana,
-      periodoId: franja.periodo_id
-    }))
-}))
+const nombre = ref('')
+const color = ref('#3b82f6')
 
 const { seleccion, seleccionDe, alternarAsignatura, agregarFranja, eliminarFranja, opcionesPeriodo, haySolape }
-  = useSeleccionAsignaturas(horarioTipoId, periodos, seleccionInicial)
-
-function grupoAsignaturaGuardadaId(asignaturaId: string) {
-  return grupoAsignaturasIniciales.value?.find(ga => ga.asignatura_id === asignaturaId)?.id
-}
+  = useSeleccionAsignaturas(horarioTipoId, periodos)
 
 const guardando = ref(false)
 const errorMessage = ref('')
 
 async function guardar() {
+  if (!user.value) return
+
   guardando.value = true
   errorMessage.value = ''
 
   try {
-    const { error: errorGrupo } = await supabase
+    const { data: grupoInsertado, error: errorGrupo } = await supabase
       .from('grupos')
-      .update({ nombre: nombre.value, color: color.value, horario_tipo_id: horarioTipoId.value || null })
-      .eq('id', grupoId)
-    if (errorGrupo) throw errorGrupo
-
-    const { error: errorBorrar } = await supabase
-      .from('grupo_asignaturas')
-      .delete()
-      .eq('grupo_id', grupoId)
-    if (errorBorrar) throw errorBorrar
+      .insert({
+        profesor_id: user.value.sub,
+        curso_id: cursoId.value,
+        nombre: nombre.value,
+        color: color.value,
+        horario_tipo_id: horarioTipoId.value || null
+      })
+      .select('id')
+      .single()
+    if (errorGrupo || !grupoInsertado) throw errorGrupo ?? new Error('grupo')
 
     for (const s of seleccion.value) {
       const { data: gaInsertada, error: errorGa } = await supabase
         .from('grupo_asignaturas')
-        .insert({ grupo_id: grupoId, asignatura_id: s.asignaturaId })
+        .insert({ grupo_id: grupoInsertado.id, asignatura_id: s.asignaturaId })
         .select('id')
         .single()
       if (errorGa || !gaInsertada) throw errorGa ?? new Error('grupo_asignatura')
@@ -134,37 +110,32 @@ async function guardar() {
 
     await navigateTo('/dashboard')
   } catch (e) {
-    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+    errorMessage.value = (e as { message?: string })?.message || 'No se ha podido crear el grupo. Inténtalo de nuevo.'
   } finally {
     guardando.value = false
   }
-}
-
-const eliminando = ref(false)
-
-async function eliminarGrupo() {
-  if (!confirm('¿Eliminar este grupo y sus horarios?')) return
-
-  eliminando.value = true
-  const { error } = await supabase.from('grupos').delete().eq('id', grupoId)
-  eliminando.value = false
-
-  if (error) {
-    errorMessage.value = 'No se ha podido eliminar el grupo.'
-    return
-  }
-
-  await navigateTo('/dashboard')
 }
 </script>
 
 <template>
   <UContainer class="py-10">
     <h1 class="mb-6 text-lg font-semibold">
-      Editar grupo
+      Nuevo grupo
     </h1>
 
     <UCard class="mb-6">
+      <UFormField
+        label="Curso"
+        class="mb-3"
+      >
+        <USelect
+          v-model="cursoId"
+          :items="opcionesCurso"
+          value-key="value"
+          class="w-full"
+        />
+      </UFormField>
+
       <div class="flex items-end gap-3">
         <UFormField
           label="Nombre del grupo"
@@ -172,6 +143,7 @@ async function eliminarGrupo() {
         >
           <UInput
             v-model="nombre"
+            placeholder="1º ESO A"
             class="w-full"
           />
         </UFormField>
@@ -210,21 +182,11 @@ async function eliminarGrupo() {
       :key="asignatura.id"
       class="mb-4 rounded-lg border border-default p-4"
     >
-      <div class="flex items-center justify-between">
-        <UCheckbox
-          :model-value="Boolean(seleccionDe(asignatura.id))"
-          :label="asignatura.nombre"
-          @update:model-value="alternarAsignatura(asignatura.id)"
-        />
-
-        <NuxtLink
-          v-if="grupoAsignaturaGuardadaId(asignatura.id)"
-          :to="`/reparto/${grupoAsignaturaGuardadaId(asignatura.id)}`"
-          class="text-primary text-sm"
-        >
-          Ver reparto →
-        </NuxtLink>
-      </div>
+      <UCheckbox
+        :model-value="Boolean(seleccionDe(asignatura.id))"
+        :label="asignatura.nombre"
+        @update:model-value="alternarAsignatura(asignatura.id)"
+      />
 
       <div
         v-if="seleccionDe(asignatura.id)"
@@ -297,29 +259,18 @@ async function eliminarGrupo() {
         color="neutral"
         variant="ghost"
         leading-icon="i-lucide-arrow-left"
-        :disabled="guardando || eliminando"
+        :disabled="guardando"
       >
         Cancelar
       </UButton>
 
-      <div class="flex gap-3">
-        <UButton
-          color="error"
-          variant="subtle"
-          :loading="eliminando"
-          @click="eliminarGrupo"
-        >
-          Eliminar grupo
-        </UButton>
-
-        <UButton
-          :disabled="haySolape"
-          :loading="guardando"
-          @click="guardar"
-        >
-          Guardar cambios
-        </UButton>
-      </div>
+      <UButton
+        :disabled="haySolape || !nombre || !horarioTipoId"
+        :loading="guardando"
+        @click="guardar"
+      >
+        Crear grupo
+      </UButton>
     </div>
   </UContainer>
 </template>
