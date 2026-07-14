@@ -98,34 +98,17 @@ export function agruparEnBloques(
   return bloques
 }
 
-// Reparte los bloques a lo largo de todo el curso por FECHA objetivo (proporcional
-// a la posición del bloque en el temario dentro del rango del curso), no saltando
-// un nº fijo de slots: como varias franjas de la semana se entrelazan en `slots`,
-// saltar un índice fijo podía coincidir con el nº de franjas semanales y caer
-// siempre en el mismo día de la semana, dejando el resto sin usar nunca.
-export function repartirBloques(
-  bloques: Bloque[],
-  slots: Slot[],
-  fechaInicio: string,
-  fechaFin: string
-): ResultadoRepartoBloques {
-  const inicioMs = new Date(`${fechaInicio}T00:00:00Z`).getTime()
-  const finMs = new Date(`${fechaFin}T00:00:00Z`).getTime()
-  const diasTotalesMs = Math.max(1, finMs - inicioMs)
-
+// Reparte los bloques a ritmo natural: consume los slots disponibles en orden
+// cronológico, usando todas las franjas semanales que hagan falta (sin dejar
+// huecos sueltos dentro de una misma semana) hasta agotar el temario. El curso
+// puede terminar de dar el temario antes del fin de curso real, dejando el resto
+// del tiempo libre para repaso, exámenes u otras actividades.
+export function repartirBloques(bloques: Bloque[], slots: Slot[]): ResultadoRepartoBloques {
   const asignaciones: Asignacion[] = []
   const subtemasNoAsignadosIds: string[] = []
 
   let cursor = 0
-  for (const [indice, bloque] of bloques.entries()) {
-    const fechaObjetivoMs = inicioMs + Math.floor((indice / bloques.length) * diasTotalesMs)
-    while (
-      cursor < slots.length
-      && new Date(`${slots[cursor]!.fecha}T00:00:00Z`).getTime() < fechaObjetivoMs
-    ) {
-      cursor++
-    }
-
+  for (const bloque of bloques) {
     if (cursor + bloque.ancho > slots.length) {
       subtemasNoAsignadosIds.push(...bloque.subtemaIds)
       continue

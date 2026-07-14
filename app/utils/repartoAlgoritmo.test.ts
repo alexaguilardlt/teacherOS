@@ -119,7 +119,7 @@ describe('repartirBloques', () => {
       { subtemaIds: ['a', 'b'], ancho: 1 },
       { subtemaIds: ['c'], ancho: 1 }
     ]
-    const { asignaciones } = repartirBloques(bloques, slots, '2025-09-01', '2025-09-15')
+    const { asignaciones } = repartirBloques(bloques, slots)
     expect(asignaciones.filter(a => a.subtemaId === 'a' || a.subtemaId === 'b').every(a => a.fraccion === 0.5)).toBe(true)
     expect(asignaciones.find(a => a.subtemaId === 'c')?.fraccion).toBe(1)
   })
@@ -133,14 +133,15 @@ describe('repartirBloques', () => {
     )
     // Solo hay 2 slots disponibles (2 lunes); un bloque de ancho 3 no cabe.
     const bloques = [{ subtemaIds: ['a'], ancho: 3 }]
-    const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloques, slots, '2025-09-01', '2025-09-08')
+    const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloques, slots)
     expect(asignaciones).toEqual([])
     expect(subtemasNoAsignadosIds).toEqual(['a'])
   })
 
   // Regresión del bug real: con muchas franjas semanales (p. ej. 9/semana), avanzar
   // el cursor un nº fijo de slots podía coincidir con el nº de franjas por semana y
-  // caer siempre en el mismo día, dejando jueves y viernes sin sesiones jamás.
+  // caer siempre en el mismo día, dejando jueves y viernes sin sesiones jamás. El
+  // reparto secuencial (a ritmo natural) no salta nunca, así que no puede alias-earse.
   it('reparte el contenido entre todos los días de la semana con muchas franjas (no se queda enganchado en un solo día)', () => {
     const diasSemana = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'] as const
     const franjas = diasSemana.flatMap(dia =>
@@ -150,10 +151,9 @@ describe('repartirBloques', () => {
     const slots = construirSlots(franjas, '2025-09-01', '2025-11-07', [])
     expect(slots.length).toBeGreaterThan(90)
 
-    // 20 subtemas de una sesión cada uno: muchos menos que los slots disponibles,
-    // el mismo desequilibrio que causaba el bug original.
+    // 20 subtemas de una sesión cada uno: muchos menos que los slots disponibles.
     const bloques = Array.from({ length: 20 }, (_, i) => ({ subtemaIds: [`s${i}`], ancho: 1 }))
-    const { asignaciones } = repartirBloques(bloques, slots, '2025-09-01', '2025-11-07')
+    const { asignaciones } = repartirBloques(bloques, slots)
 
     const diaSemanaDe = (fechaISO: string) => {
       const indice = new Date(`${fechaISO}T00:00:00Z`).getUTCDay()
@@ -163,5 +163,24 @@ describe('repartirBloques', () => {
     expect(diasUsados.has('jueves')).toBe(true)
     expect(diasUsados.has('viernes')).toBe(true)
     expect(diasUsados.size).toBeGreaterThan(2)
+  })
+
+  it('da clase a ritmo natural: usa todas las franjas de una semana antes de pasar a la siguiente, y deja el resto del curso libre al terminar el temario', () => {
+    // Igual que Biología de 1º Bachillerato: 2 franjas/semana (miércoles y jueves).
+    const franjas = [
+      { franjaId: 'mie', diaSemana: 'miercoles' as const, horaInicio: '09:00' },
+      { franjaId: 'jue', diaSemana: 'jueves' as const, horaInicio: '09:00' }
+    ]
+    // 10 semanas disponibles ⇒ 20 slots, pero solo se necesitan 8 sesiones.
+    const slots = construirSlots(franjas, '2025-09-01', '2025-11-07', [])
+    const bloques = Array.from({ length: 8 }, (_, i) => ({ subtemaIds: [`s${i}`], ancho: 1 }))
+    const { asignaciones } = repartirBloques(bloques, slots)
+
+    // Se usan exactamente los 8 primeros huecos cronológicos (sin saltos ni huecos
+    // sueltos dentro de las 4 primeras semanas), y nada a partir de ahí.
+    expect(asignaciones.map(a => a.slot.fecha)).toEqual(slots.slice(0, 8).map(s => s.fecha))
+    for (const fecha of asignaciones.map(a => a.slot.fecha)) {
+      expect(fecha < '2025-10-01').toBe(true) // dentro de las primeras 4 semanas
+    }
   })
 })

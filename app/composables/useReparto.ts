@@ -98,7 +98,7 @@ export function useReparto() {
     const bloques = agruparEnBloques(subtemasOrdenados, duracionPorDificultad)
 
     // --- 3) Repartir los bloques a lo largo de todo el curso (no solo al principio) ---
-    const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloques, slots, curso.fecha_inicio, curso.fecha_fin)
+    const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloques, slots)
 
     // --- 4) Agrupar por sesión (misma franja+fecha) e insertar ---
     const sesionesPorClave = new Map<string, { franjaId: string, fecha: string, subtemas: { subtemaId: string, fraccion: number }[] }>()
