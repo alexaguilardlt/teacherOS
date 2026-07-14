@@ -103,6 +103,24 @@ const etiquetaEstado: Record<string, string> = {
   impartida: 'Impartida'
 }
 
+const colorEstado: Record<string, 'neutral' | 'success' | 'error' | 'primary'> = {
+  propuesta: 'neutral',
+  confirmada: 'success',
+  cancelada: 'error',
+  impartida: 'primary'
+}
+
+const actualizandoEstadoId = ref<string | null>(null)
+
+async function alternarImpartida(sesionId: string, estadoActual: string) {
+  const nuevoEstado = estadoActual === 'impartida' ? 'confirmada' : 'impartida'
+  actualizandoEstadoId.value = sesionId
+  const { error } = await supabase.from('sesiones').update({ estado: nuevoEstado }).eq('id', sesionId)
+  actualizandoEstadoId.value = null
+  if (error) return
+  sesiones.value = (sesiones.value ?? []).map(s => (s.id === sesionId ? { ...s, estado: nuevoEstado } : s))
+}
+
 function detalleSesion(sesion: { id: string, fecha: string, estado: string, franja_horaria_id: string }) {
   const franja = horarios.value?.find(f => f.id === sesion.franja_horaria_id)
   const ga = grupoAsignaturas.value?.find(item => item.id === franja?.grupo_asignatura_id)
@@ -123,6 +141,7 @@ function detalleSesion(sesion: { id: string, fecha: string, estado: string, fran
     .map(p => (p.fraccion < 1 ? `${p.subtema} (½)` : p.subtema))
     .join(', ')
   return {
+    id: sesion.id,
     fecha: sesion.fecha,
     estado: sesion.estado,
     grupo: grupo?.nombre ?? '',
@@ -565,12 +584,23 @@ const sinNada = computed(() =>
                       {{ detalleSesion(sesion).contenido }}
                     </td>
                     <td class="p-2">
-                      <UBadge
-                        :color="sesion.estado === 'confirmada' ? 'success' : 'neutral'"
-                        variant="subtle"
-                      >
-                        {{ etiquetaEstado[sesion.estado] }}
-                      </UBadge>
+                      <div class="flex items-center gap-2">
+                        <UBadge
+                          :color="colorEstado[sesion.estado] ?? 'neutral'"
+                          variant="subtle"
+                        >
+                          {{ etiquetaEstado[sesion.estado] }}
+                        </UBadge>
+                        <UButton
+                          :icon="sesion.estado === 'impartida' ? 'i-lucide-rotate-ccw' : 'i-lucide-check'"
+                          color="neutral"
+                          variant="ghost"
+                          size="xs"
+                          :loading="actualizandoEstadoId === sesion.id"
+                          :aria-label="sesion.estado === 'impartida' ? 'Desmarcar como impartida' : 'Marcar como impartida'"
+                          @click="alternarImpartida(sesion.id, sesion.estado)"
+                        />
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -695,13 +725,24 @@ const sinNada = computed(() =>
                           <span class="text-muted">{{ punto.tema }} — </span>{{ punto.subtema }}<span v-if="punto.fraccion < 1"> (½)</span>
                         </li>
                       </ul>
-                      <UBadge
-                        :color="detalle.estado === 'confirmada' ? 'success' : 'neutral'"
-                        variant="subtle"
-                        class="mt-2"
-                      >
-                        {{ etiquetaEstado[detalle.estado] }}
-                      </UBadge>
+                      <div class="mt-2 flex items-center gap-2">
+                        <UBadge
+                          :color="colorEstado[detalle.estado] ?? 'neutral'"
+                          variant="subtle"
+                        >
+                          {{ etiquetaEstado[detalle.estado] }}
+                        </UBadge>
+                        <UButton
+                          :icon="detalle.estado === 'impartida' ? 'i-lucide-rotate-ccw' : 'i-lucide-check'"
+                          color="neutral"
+                          variant="ghost"
+                          size="xs"
+                          :loading="actualizandoEstadoId === detalle.id"
+                          @click="alternarImpartida(detalle.id, detalle.estado)"
+                        >
+                          {{ detalle.estado === 'impartida' ? 'Desmarcar' : 'Marcar impartida' }}
+                        </UButton>
+                      </div>
                     </div>
                   </div>
                 </UCard>
