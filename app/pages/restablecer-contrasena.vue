@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import type { FormError, FormSubmitEvent } from '@nuxt/ui'
 
-definePageMeta({
-  middleware: 'guest'
-})
-
 const supabase = useSupabaseClient()
+const user = useSupabaseUser()
 
 const state = reactive({
-  email: '',
-  password: ''
+  password: '',
+  confirmarPassword: ''
 })
 
 const errorMessage = ref('')
@@ -17,11 +14,11 @@ const loading = ref(false)
 
 function validate(formState: typeof state): FormError[] {
   const errors: FormError[] = []
-  if (!formState.email) {
-    errors.push({ name: 'email', message: 'El email es obligatorio' })
+  if (!formState.password || formState.password.length < 6) {
+    errors.push({ name: 'password', message: 'La contraseña debe tener al menos 6 caracteres' })
   }
-  if (!formState.password) {
-    errors.push({ name: 'password', message: 'La contraseña es obligatoria' })
+  if (formState.confirmarPassword !== formState.password) {
+    errors.push({ name: 'confirmarPassword', message: 'Las contraseñas no coinciden' })
   }
   return errors
 }
@@ -30,15 +27,12 @@ async function onSubmit(event: FormSubmitEvent<typeof state>) {
   errorMessage.value = ''
   loading.value = true
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email: event.data.email,
-    password: event.data.password
-  })
+  const { error } = await supabase.auth.updateUser({ password: event.data.password })
 
   loading.value = false
 
   if (error) {
-    errorMessage.value = 'Email o contraseña incorrectos'
+    errorMessage.value = 'No se ha podido actualizar la contraseña. Puede que el enlace haya caducado; solicita uno nuevo.'
     return
   }
 
@@ -51,48 +45,54 @@ async function onSubmit(event: FormSubmitEvent<typeof state>) {
     <UCard class="w-full max-w-sm">
       <template #header>
         <h1 class="text-lg font-semibold">
-          Iniciar sesión
+          Nueva contraseña
         </h1>
       </template>
 
+      <div v-if="!user">
+        <p class="text-sm text-muted">
+          Este enlace no es válido o ha caducado.
+          <NuxtLink
+            to="/olvide-contrasena"
+            class="text-primary font-medium"
+          >
+            Solicita uno nuevo
+          </NuxtLink>.
+        </p>
+      </div>
+
       <UForm
+        v-else
         :state="state"
         :validate="validate"
         class="flex flex-col gap-4"
         @submit="onSubmit"
       >
         <UFormField
-          label="Email"
-          name="email"
-        >
-          <UInput
-            v-model="state.email"
-            type="email"
-            autocomplete="email"
-            placeholder="tu@email.com"
-            class="w-full"
-          />
-        </UFormField>
-
-        <UFormField
-          label="Contraseña"
+          label="Nueva contraseña"
           name="password"
         >
           <UInput
             v-model="state.password"
             type="password"
-            autocomplete="current-password"
+            autocomplete="new-password"
             placeholder="••••••••"
             class="w-full"
           />
         </UFormField>
 
-        <NuxtLink
-          to="/olvide-contrasena"
-          class="text-primary self-end text-sm font-medium"
+        <UFormField
+          label="Confirmar contraseña"
+          name="confirmarPassword"
         >
-          ¿Olvidaste tu contraseña?
-        </NuxtLink>
+          <UInput
+            v-model="state.confirmarPassword"
+            type="password"
+            autocomplete="new-password"
+            placeholder="••••••••"
+            class="w-full"
+          />
+        </UFormField>
 
         <UAlert
           v-if="errorMessage"
@@ -106,21 +106,9 @@ async function onSubmit(event: FormSubmitEvent<typeof state>) {
           block
           :loading="loading"
         >
-          Entrar
+          Guardar contraseña
         </UButton>
       </UForm>
-
-      <template #footer>
-        <p class="text-sm text-muted">
-          ¿No tienes cuenta?
-          <NuxtLink
-            to="/registro"
-            class="text-primary font-medium"
-          >
-            Regístrate
-          </NuxtLink>
-        </p>
-      </template>
     </UCard>
   </UContainer>
 </template>

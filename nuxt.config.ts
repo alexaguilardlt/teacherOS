@@ -34,7 +34,7 @@ export default defineNuxtConfig({
     redirectOptions: {
       login: '/login',
       callback: '/confirm',
-      exclude: ['/', '/registro']
+      exclude: ['/', '/registro', '/olvide-contrasena', '/restablecer-contrasena']
     }
   }
 })

@@ -6,13 +6,14 @@ definePageMeta({
 })
 
 const supabase = useSupabaseClient()
+const requestUrl = useRequestURL()
 
 const state = reactive({
-  email: '',
-  password: ''
+  email: ''
 })
 
 const errorMessage = ref('')
+const successMessage = ref('')
 const loading = ref(false)
 
 function validate(formState: typeof state): FormError[] {
@@ -20,29 +21,26 @@ function validate(formState: typeof state): FormError[] {
   if (!formState.email) {
     errors.push({ name: 'email', message: 'El email es obligatorio' })
   }
-  if (!formState.password) {
-    errors.push({ name: 'password', message: 'La contraseña es obligatoria' })
-  }
   return errors
 }
 
 async function onSubmit(event: FormSubmitEvent<typeof state>) {
   errorMessage.value = ''
+  successMessage.value = ''
   loading.value = true
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email: event.data.email,
-    password: event.data.password
+  const { error } = await supabase.auth.resetPasswordForEmail(event.data.email, {
+    redirectTo: `${requestUrl.origin}/restablecer-contrasena`
   })
 
   loading.value = false
 
   if (error) {
-    errorMessage.value = 'Email o contraseña incorrectos'
+    errorMessage.value = 'No se ha podido enviar el email. Inténtalo de nuevo.'
     return
   }
 
-  await navigateTo('/dashboard')
+  successMessage.value = 'Si existe una cuenta con ese email, te hemos enviado un enlace para restablecer la contraseña.'
 }
 </script>
 
@@ -51,7 +49,7 @@ async function onSubmit(event: FormSubmitEvent<typeof state>) {
     <UCard class="w-full max-w-sm">
       <template #header>
         <h1 class="text-lg font-semibold">
-          Iniciar sesión
+          Restablecer contraseña
         </h1>
       </template>
 
@@ -74,26 +72,6 @@ async function onSubmit(event: FormSubmitEvent<typeof state>) {
           />
         </UFormField>
 
-        <UFormField
-          label="Contraseña"
-          name="password"
-        >
-          <UInput
-            v-model="state.password"
-            type="password"
-            autocomplete="current-password"
-            placeholder="••••••••"
-            class="w-full"
-          />
-        </UFormField>
-
-        <NuxtLink
-          to="/olvide-contrasena"
-          class="text-primary self-end text-sm font-medium"
-        >
-          ¿Olvidaste tu contraseña?
-        </NuxtLink>
-
         <UAlert
           v-if="errorMessage"
           color="error"
@@ -101,23 +79,29 @@ async function onSubmit(event: FormSubmitEvent<typeof state>) {
           :title="errorMessage"
         />
 
+        <UAlert
+          v-if="successMessage"
+          color="success"
+          variant="subtle"
+          :title="successMessage"
+        />
+
         <UButton
           type="submit"
           block
           :loading="loading"
         >
-          Entrar
+          Enviar enlace
         </UButton>
       </UForm>
 
       <template #footer>
         <p class="text-sm text-muted">
-          ¿No tienes cuenta?
           <NuxtLink
-            to="/registro"
+            to="/login"
             class="text-primary font-medium"
           >
-            Regístrate
+            Volver a iniciar sesión
           </NuxtLink>
         </p>
       </template>
