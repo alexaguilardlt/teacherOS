@@ -26,12 +26,6 @@ importers:
       '@nuxtjs/supabase':
         specifier: 2.0.9
         version: 2.0.9
-      '@pinia-orm/nuxt':
-        specifier: 1.10.2
-        version: 1.10.2(@pinia/nuxt@0.11.3(magicast@0.5.3)(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3))))(magicast@0.5.3)(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3))
-      '@pinia/colada-nuxt':
-        specifier: 1.0.1
-        version: 1.0.1(@pinia/colada@1.3.1(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3)))(magicast@0.5.3)
       '@pinia/nuxt':
         specifier: 0.11.3
         version: 0.11.3(magicast@0.5.3)(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))
@@ -57,6 +51,9 @@ importers:
       eslint:
         specifier: ^10.6.0
         version: 10.6.0(jiti@2.7.0)
+      pinia:
+        specifier: ^3.0.4
+        version: 3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3))
       playwright-core:
         specifier: ^1.61.1
         version: 1.61.1
@@ -1778,19 +1775,6 @@ packages:
   '@parcel/watcher@2.5.6':
     resolution: {integrity: sha512-tmmZ3lQxAe/k/+rNnXQRawJ4NjxO2hqiOLTHvWchtGZULp4RyFeh6aU4XdOYBFe2KE1oShQTv4AblOs2iOrNnQ==}
     engines: {node: '>= 10.0.0'}
-
-  '@pinia-orm/normalizr@1.10.2':
-    resolution: {integrity: sha512-lgcCb7ST/leYXJwUT/y7RvTn+5U6OOmvSUuNGs/Mpqrx99IG3R9DSWA3w7n/wl7yDt5+35J0ERK3bebQW1STsQ==}
-
-  '@pinia-orm/nuxt@1.10.2':
-    resolution: {integrity: sha512-I/dNHuFR2V8K9X6oi5P+EKCbiSRSenbMfMXySmxQOqaMU81f2XVaPVTaq9dgomo9i5mE7x/QqRK49ne8av51ag==}
-    peerDependencies:
-      '@pinia/nuxt': <=0.9.0
-
-  '@pinia/colada-nuxt@1.0.1':
-    resolution: {integrity: sha512-Jhyz4pTrBS8UMh9Bz43oKQEJalWx2hTc+27oWKJMpaIs/Yghj593WW+8NF3YPGCNiqYLIgyofwgL4DAExpkluw==}
-    peerDependencies:
-      '@pinia/colada': '>=1.3.0'
 
   '@pinia/colada@1.3.1':
     resolution: {integrity: sha512-DLHtyCud5sACbNLdVIHsoPrhcHMT/1LvObFHxxbmJKU2fqGPluc8Y8CtmCTQ71BgnzcNMuAl97G5XrAgOZqxvg==}
@@ -4686,11 +4670,6 @@ packages:
   picomatch@4.0.4:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
-
-  pinia-orm@1.10.2:
-    resolution: {integrity: sha512-Q8QwFFdAmhc347QY6ndXtLZX4kE+46dUQbyy0ha6URmdIaz1jf8FbZEJ8BhHMLGPx+PeO/QJraxvvETx62lMQA==}
-    peerDependencies:
-      pinia: ^2.1.7
 
   pinia@3.0.4:
     resolution: {integrity: sha512-l7pqLUFTI/+ESXn6k3nu30ZIzW5E2WZF/LaHJEpoq6ElcLD+wduZoB2kBN19du6K/4FDpPMazY2wJr+IndBtQw==}
@@ -7645,30 +7624,11 @@ snapshots:
       '@parcel/watcher-win32-ia32': 2.5.6
       '@parcel/watcher-win32-x64': 2.5.6
 
-  '@pinia-orm/normalizr@1.10.2': {}
-
-  '@pinia-orm/nuxt@1.10.2(@pinia/nuxt@0.11.3(magicast@0.5.3)(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3))))(magicast@0.5.3)(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3))':
-    dependencies:
-      '@nuxt/kit': 3.21.8(magicast@0.5.3)
-      '@pinia/nuxt': 0.11.3(magicast@0.5.3)(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))
-      pinia-orm: 1.10.2(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3))
-    transitivePeerDependencies:
-      - '@vue/composition-api'
-      - magicast
-      - pinia
-      - vue
-
-  '@pinia/colada-nuxt@1.0.1(@pinia/colada@1.3.1(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3)))(magicast@0.5.3)':
-    dependencies:
-      '@nuxt/kit': 4.4.8(magicast@0.5.3)
-      '@pinia/colada': 1.3.1(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3))
-    transitivePeerDependencies:
-      - magicast
-
   '@pinia/colada@1.3.1(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3))':
     dependencies:
       pinia: 3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3))
       vue: 3.5.35(typescript@6.0.3)
+    optional: true
 
   '@pinia/nuxt@0.11.3(magicast@0.5.3)(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))':
     dependencies:
@@ -10808,15 +10768,6 @@ snapshots:
   picomatch@2.3.2: {}
 
   picomatch@4.0.4: {}
-
-  pinia-orm@1.10.2(pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3)):
-    dependencies:
-      '@pinia-orm/normalizr': 1.10.2
-      pinia: 3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3))
-      vue-demi: 0.14.10(vue@3.5.35(typescript@6.0.3))
-    transitivePeerDependencies:
-      - '@vue/composition-api'
-      - vue
 
   pinia@3.0.4(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3)):
     dependencies:

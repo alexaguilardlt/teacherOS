@@ -1,18 +1,3 @@
-type DiaSemana = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
-
-const DIA_SEMANA_POR_INDICE: DiaSemana[] = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
-
-interface Slot {
-  franjaId: string
-  fecha: string
-  horaInicio: string
-}
-
-interface Bloque {
-  subtemaIds: string[]
-  ancho: number
-}
-
 export interface ResultadoReparto {
   sesionesCreadas: number
   subtemasNoAsignados: string[]
@@ -96,85 +81,24 @@ export function useReparto() {
 
     // --- 1) Fechas de clase reales para cada franja de este grupo+asignatura ---
     const festivosRangos = (festivos ?? []).map(f => ({ inicio: f.fecha_inicio, fin: f.fecha_fin }))
-    function estaEnFestivo(fechaISO: string) {
-      return festivosRangos.some(r => fechaISO >= r.inicio && fechaISO <= r.fin)
-    }
+    const franjasParaSlots = franjas
+      .map((franja) => {
+        const periodo = periodoPorId.get(franja.periodo_id)
+        if (!periodo) return null
+        return { franjaId: franja.id, diaSemana: franja.dia_semana, horaInicio: periodo.hora_inicio }
+      })
+      .filter((f): f is NonNullable<typeof f> => f !== null)
 
-    const slots: Slot[] = []
-    const unDia = 24 * 60 * 60 * 1000
-    const inicioMs = new Date(`${curso.fecha_inicio}T00:00:00Z`).getTime()
-    const finMs = new Date(`${curso.fecha_fin}T00:00:00Z`).getTime()
-
-    for (const franja of franjas) {
-      const periodo = periodoPorId.get(franja.periodo_id)
-      if (!periodo) continue
-      for (let t = inicioMs; t <= finMs; t += unDia) {
-        const diaSemana = DIA_SEMANA_POR_INDICE[new Date(t).getUTCDay()]
-        if (diaSemana !== franja.dia_semana) continue
-        const fechaISO = new Date(t).toISOString().slice(0, 10)
-        if (estaEnFestivo(fechaISO)) continue
-        slots.push({ franjaId: franja.id, fecha: fechaISO, horaInicio: periodo.hora_inicio })
-      }
-    }
-    slots.sort((a, b) => (a.fecha === b.fecha ? a.horaInicio.localeCompare(b.horaInicio) : a.fecha.localeCompare(b.fecha)))
+    const slots = construirSlots(franjasParaSlots, curso.fecha_inicio, curso.fecha_fin, festivosRangos)
     if (!slots.length) {
       throw new Error('No hay días lectivos disponibles para el horario de este grupo.')
     }
 
     // --- 2) Agrupar subtemas en bloques según su duración (0.5 sesiones se emparejan) ---
-    const bloques: Bloque[] = []
-    let pendienteFacil: string | null = null
-
-    for (const subtema of subtemasOrdenados) {
-      const duracion = duracionPorDificultad.get(subtema.dificultad) ?? 1
-      if (duracion <= 0.5) {
-        if (pendienteFacil) {
-          bloques.push({ subtemaIds: [pendienteFacil, subtema.id], ancho: 1 })
-          pendienteFacil = null
-        } else {
-          pendienteFacil = subtema.id
-        }
-      } else {
-        bloques.push({ subtemaIds: [subtema.id], ancho: Math.max(1, Math.round(duracion)) })
-      }
-    }
-    if (pendienteFacil) {
-      bloques.push({ subtemaIds: [pendienteFacil], ancho: 1 })
-    }
+    const bloques = agruparEnBloques(subtemasOrdenados, duracionPorDificultad)
 
     // --- 3) Repartir los bloques a lo largo de todo el curso (no solo al principio) ---
-    // Se reparte por FECHA objetivo (proporcional a la posición del bloque en el
-    // temario dentro del rango del curso), no saltando un nº fijo de slots: como
-    // varias franjas de la semana se entrelazan en `slots`, saltar un índice fijo
-    // podía coincidir con el nº de franjas semanales y caer siempre en el mismo
-    // día de la semana, dejando el resto sin usar nunca.
-    const asignaciones: { slot: Slot, subtemaId: string, fraccion: number }[] = []
-    const subtemasNoAsignadosIds: string[] = []
-
-    const diasTotalesMs = Math.max(1, finMs - inicioMs)
-    let cursor = 0
-    for (const [indice, bloque] of bloques.entries()) {
-      const fechaObjetivoMs = inicioMs + Math.floor((indice / bloques.length) * diasTotalesMs)
-      while (
-        cursor < slots.length
-        && new Date(`${slots[cursor]!.fecha}T00:00:00Z`).getTime() < fechaObjetivoMs
-      ) {
-        cursor++
-      }
-
-      if (cursor + bloque.ancho > slots.length) {
-        subtemasNoAsignadosIds.push(...bloque.subtemaIds)
-        continue
-      }
-      const fraccion = bloque.subtemaIds.length > 1 ? 0.5 : 1
-      for (let i = 0; i < bloque.ancho; i++) {
-        const slot = slots[cursor + i]!
-        for (const subtemaId of bloque.subtemaIds) {
-          asignaciones.push({ slot, subtemaId, fraccion })
-        }
-      }
-      cursor += bloque.ancho
-    }
+    const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloques, slots, curso.fecha_inicio, curso.fecha_fin)
 
     // --- 4) Agrupar por sesión (misma franja+fecha) e insertar ---
     const sesionesPorClave = new Map<string, { franjaId: string, fecha: string, subtemas: { subtemaId: string, fraccion: number }[] }>()

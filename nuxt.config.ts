@@ -6,9 +6,7 @@ export default defineNuxtConfig({
     '@nuxt/image',
     '@nuxt/test-utils',
     '@nuxtjs/supabase',
-    '@pinia/nuxt',
-    '@pinia/colada-nuxt',
-    '@pinia-orm/nuxt'
+    '@pinia/nuxt'
   ],
 
   devtools: {

@@ -1,3 +1,5 @@
+import { defineStore } from 'pinia'
+
 export type DificultadSubtema = 'baja' | 'media' | 'alta'
 export type DiaSemana = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
 
