@@ -12,6 +12,10 @@ import type {
   TipoElementoSuelto
 } from './cursoWizard.types'
 
+// '0001-01-01'/'9999-12-31' representan "sin límite" al comparar rangos.
+const SIN_LIMITE_INICIO = '0001-01-01'
+const SIN_LIMITE_FIN = '9999-12-31'
+
 const COLORES_GRUPO = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899']
 
 // La duración se introduce en bloques de 0.5 sesiones (0.5, 1, 1.5, 2...).
@@ -23,17 +27,16 @@ function esTema(elemento: ElementoTemarioWizard): elemento is TemaWizard {
   return elemento.clase === 'tema'
 }
 
-// Dos horarios tipo "se solapan" en el tiempo si, tratando una vigencia
-// vacía como "todo el curso", sus rangos de fechas se cruzan. Sin esto, dos
-// franjas del mismo día y hora pero de horarios tipo que nunca coinciden en
-// el calendario real (ej. "Reducido" en septiembre vs. "Normal" en octubre)
-// se marcarían como conflicto sin serlo.
+// Dos horarios tipo "se solapan" en el tiempo si, tratando "sin ningún
+// tramo de vigencia" como "todo el curso", alguno de los tramos de uno se
+// cruza con alguno de los tramos del otro. Sin esto, dos franjas del mismo
+// día y hora pero de horarios tipo que nunca coinciden en el calendario
+// real (ej. "Reducido" en septiembre vs. "Normal" en octubre) se
+// marcarían como conflicto sin serlo.
 function vigenciasSolapan(a: HorarioTipoWizard, b: HorarioTipoWizard) {
-  const aIni = a.vigenciaInicio || '0001-01-01'
-  const aFin = a.vigenciaFin || '9999-12-31'
-  const bIni = b.vigenciaInicio || '0001-01-01'
-  const bFin = b.vigenciaFin || '9999-12-31'
-  return aIni <= bFin && bIni <= aFin
+  const tramosA = a.vigencias.length ? a.vigencias : [{ fechaInicio: SIN_LIMITE_INICIO, fechaFin: SIN_LIMITE_FIN }]
+  const tramosB = b.vigencias.length ? b.vigencias : [{ fechaInicio: SIN_LIMITE_INICIO, fechaFin: SIN_LIMITE_FIN }]
+  return tramosA.some(ta => tramosB.some(tb => ta.fechaInicio <= tb.fechaFin && tb.fechaInicio <= ta.fechaFin))
 }
 
 export const useCursoWizardStore = defineStore('curso-wizard', {
@@ -57,9 +60,9 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
         Boolean(ht.nombre)
         && ht.periodos.length > 0
         && ht.periodos.every(periodo => periodo.horaInicio && periodo.horaFin && periodo.horaFin > periodo.horaInicio)
-        // La vigencia es opcional, pero si se rellena un extremo hay que rellenar el otro.
-        && Boolean(ht.vigenciaInicio) === Boolean(ht.vigenciaFin)
-        && (!ht.vigenciaInicio || ht.vigenciaFin > ht.vigenciaInicio)
+        // Los tramos de vigencia son opcionales (ninguno = todo el curso),
+        // pero cada tramo que se añada tiene que estar completo y bien formado.
+        && ht.vigencias.every(v => Boolean(v.fechaInicio && v.fechaFin) && v.fechaFin > v.fechaInicio)
       )
       // dias_no_lectivos exige fecha_fin >= fecha_inicio en base de datos:
       // si no se valida aquí, el error solo aparece al guardar. La fecha de
@@ -75,6 +78,10 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
         Boolean(asignatura.nombre)
         && asignatura.elementos.every((elemento) => {
           if (elemento.clase === 'tema') {
+            if (!elemento.subtemas.length) {
+              // Sin puntos del tema, la duración del tema entero tiene que ser válida.
+              return Boolean(elemento.nombre) && esDuracionValida(elemento.duracionSesiones)
+            }
             return Boolean(elemento.nombre)
               && elemento.subtemas.every(subtema => Boolean(subtema.nombre) && esDuracionValida(subtema.duracionSesiones))
           }
@@ -161,30 +168,42 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
       this.horariosTipo.push({
         clienteId: crypto.randomUUID(),
         nombre: '',
-        vigenciaInicio: '',
-        vigenciaFin: '',
+        vigencias: [],
         periodos: []
       })
     },
 
     // Copia las franjas horarias de un horario tipo a uno nuevo, sin
-    // vigencia (para que el profesor solo tenga que poner las fechas):
-    // pensado para el caso de "Reducido en septiembre y en junio", donde
-    // hay que repetir el mismo patrón de horas en dos vigencias distintas.
+    // vigencia: útil si en vez de un segundo tramo de vigencia (ver
+    // agregarVigencia) el profesor prefiere un horario tipo aparte.
     duplicarHorarioTipo(clienteId: string) {
       const original = this.horariosTipo.find(ht => ht.clienteId === clienteId)
       if (!original) return
       this.horariosTipo.push({
         clienteId: crypto.randomUUID(),
         nombre: `${original.nombre} (copia)`,
-        vigenciaInicio: '',
-        vigenciaFin: '',
+        vigencias: [],
         periodos: original.periodos.map(periodo => ({
           clienteId: crypto.randomUUID(),
           horaInicio: periodo.horaInicio,
           horaFin: periodo.horaFin
         }))
       })
+    },
+
+    // Un horario tipo puede tener varios tramos de vigencia (ej.
+    // "Reducido" vigente en septiembre Y en junio): así, al elegir su
+    // período para una franja, ya se cubren todos los tramos con una sola
+    // selección.
+    agregarVigencia(horarioTipoClienteId: string) {
+      const ht = this.horariosTipo.find(h => h.clienteId === horarioTipoClienteId)
+      ht?.vigencias.push({ clienteId: crypto.randomUUID(), fechaInicio: '', fechaFin: '' })
+    },
+
+    eliminarVigencia(horarioTipoClienteId: string, vigenciaClienteId: string) {
+      const ht = this.horariosTipo.find(h => h.clienteId === horarioTipoClienteId)
+      if (!ht) return
+      ht.vigencias = ht.vigencias.filter(v => v.clienteId !== vigenciaClienteId)
     },
 
     eliminarHorarioTipo(clienteId: string) {
@@ -236,7 +255,8 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
         clienteId: crypto.randomUUID(),
         clase: 'tema',
         nombre: '',
-        subtemas: []
+        subtemas: [],
+        duracionSesiones: 1
       })
     },
 

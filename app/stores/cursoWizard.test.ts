@@ -21,8 +21,7 @@ describe('cursoValido', () => {
     store.horariosTipo = [{
       clienteId: 'ht1',
       nombre: 'General',
-      vigenciaInicio: '',
-      vigenciaFin: '',
+      vigencias: [],
       periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }]
     }]
     expect(store.cursoValido).toBe(false)
@@ -31,27 +30,25 @@ describe('cursoValido', () => {
   it('es falso si algún horario tipo no tiene periodos o un periodo tiene horas inválidas', () => {
     const store = useCursoWizardStore()
     store.curso = { nombre: 'Curso', fechaInicio: '2025-09-08', fechaFin: '2026-06-19' }
-    store.horariosTipo = [{ clienteId: 'ht1', nombre: 'General', vigenciaInicio: '', vigenciaFin: '', periodos: [] }]
+    store.horariosTipo = [{ clienteId: 'ht1', nombre: 'General', vigencias: [], periodos: [] }]
     expect(store.cursoValido).toBe(false)
 
     store.horariosTipo = [{
       clienteId: 'ht1',
       nombre: 'General',
-      vigenciaInicio: '',
-      vigenciaFin: '',
+      vigencias: [],
       periodos: [{ clienteId: 'p1', horaInicio: '09:00', horaFin: '08:00' }]
     }]
     expect(store.cursoValido).toBe(false)
   })
 
-  it('es falso si la vigencia solo tiene un extremo relleno, o si el fin no es posterior al inicio', () => {
+  it('es falso si un tramo de vigencia tiene una fecha vacía, o si el fin no es posterior al inicio', () => {
     const store = useCursoWizardStore()
     store.curso = { nombre: 'Curso', fechaInicio: '2025-09-08', fechaFin: '2026-06-19' }
     store.horariosTipo = [{
       clienteId: 'ht1',
       nombre: 'Reducido',
-      vigenciaInicio: '2025-09-01',
-      vigenciaFin: '',
+      vigencias: [{ clienteId: 'v1', fechaInicio: '2025-09-01', fechaFin: '' }],
       periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }]
     }]
     expect(store.cursoValido).toBe(false)
@@ -59,29 +56,29 @@ describe('cursoValido', () => {
     store.horariosTipo = [{
       clienteId: 'ht1',
       nombre: 'Reducido',
-      vigenciaInicio: '2025-09-30',
-      vigenciaFin: '2025-09-01',
+      vigencias: [{ clienteId: 'v1', fechaInicio: '2025-09-30', fechaFin: '2025-09-01' }],
       periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }]
     }]
     expect(store.cursoValido).toBe(false)
   })
 
-  it('es verdadero con un curso y al menos un horario tipo bien formados, con o sin vigencia', () => {
+  it('es verdadero con un curso y al menos un horario tipo bien formados, con o sin vigencia (uno o varios tramos)', () => {
     const store = useCursoWizardStore()
     store.curso = { nombre: 'Curso', fechaInicio: '2025-09-08', fechaFin: '2026-06-19' }
     store.horariosTipo = [
       {
         clienteId: 'ht1',
         nombre: 'General',
-        vigenciaInicio: '',
-        vigenciaFin: '',
+        vigencias: [],
         periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }]
       },
       {
         clienteId: 'ht2',
         nombre: 'Reducido',
-        vigenciaInicio: '2025-09-01',
-        vigenciaFin: '2025-09-30',
+        vigencias: [
+          { clienteId: 'v1', fechaInicio: '2025-09-01', fechaFin: '2025-09-30' },
+          { clienteId: 'v2', fechaInicio: '2026-06-01', fechaFin: '2026-06-19' }
+        ],
         periodos: [{ clienteId: 'p2', horaInicio: '08:00', horaFin: '13:00' }]
       }
     ]
@@ -134,7 +131,8 @@ describe('asignaturasValidas', () => {
         clienteId: 't1',
         clase: 'tema',
         nombre: 'Tema 1',
-        subtemas: [{ clienteId: 's1', nombre: 'Punto 1', duracionSesiones: 0.7 }]
+        subtemas: [{ clienteId: 's1', nombre: 'Punto 1', duracionSesiones: 0.7 }],
+        duracionSesiones: 1
       }]
     }]
     expect(store.asignaturasValidas).toBe(false)
@@ -143,9 +141,23 @@ describe('asignaturasValidas', () => {
       clienteId: 't1',
       clase: 'tema',
       nombre: 'Tema 1',
-      subtemas: [{ clienteId: 's1', nombre: 'Punto 1', duracionSesiones: 0 }]
+      subtemas: [{ clienteId: 's1', nombre: 'Punto 1', duracionSesiones: 0 }],
+      duracionSesiones: 1
     }
     expect(store.asignaturasValidas).toBe(false)
+  })
+
+  it('un tema sin puntos usa su propia duración: falsa si no es válida, verdadera si lo es', () => {
+    const store = useCursoWizardStore()
+    store.asignaturas = [{
+      clienteId: 'a1',
+      nombre: 'Biología',
+      elementos: [{ clienteId: 't1', clase: 'tema', nombre: 'Tema sin puntos', subtemas: [], duracionSesiones: 0.3 }]
+    }]
+    expect(store.asignaturasValidas).toBe(false)
+
+    store.asignaturas[0]!.elementos[0] = { clienteId: 't1', clase: 'tema', nombre: 'Tema sin puntos', subtemas: [], duracionSesiones: 3 }
+    expect(store.asignaturasValidas).toBe(true)
   })
 
   it('es falso si un elemento suelto no tiene nombre o su duración no es válida', () => {
@@ -171,7 +183,8 @@ describe('asignaturasValidas', () => {
           clienteId: 't1',
           clase: 'tema',
           nombre: 'Tema 1',
-          subtemas: [{ clienteId: 's1', nombre: 'Punto 1', duracionSesiones: 1.5 }]
+          subtemas: [{ clienteId: 's1', nombre: 'Punto 1', duracionSesiones: 1.5 }],
+          duracionSesiones: 1
         },
         { clienteId: 'e1', clase: 'suelto', tipo: 'repaso', nombre: 'Repaso trimestral', duracionSesiones: 1 }
       ]
@@ -236,8 +249,7 @@ describe('haySolape', () => {
     store.horariosTipo = [{
       clienteId: 'ht1',
       nombre: 'General',
-      vigenciaInicio: '',
-      vigenciaFin: '',
+      vigencias: [],
       periodos: [
         { clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' },
         { clienteId: 'p2', horaInicio: '09:00', horaFin: '10:00' }
@@ -281,8 +293,8 @@ describe('haySolape', () => {
   it('es verdadero si dos periodos distintos de horarios tipo distintos (sin vigencia) coinciden en la hora real', () => {
     const store = useCursoWizardStore()
     store.horariosTipo = [
-      { clienteId: 'ht1', nombre: 'ESO', vigenciaInicio: '', vigenciaFin: '', periodos: [{ clienteId: 'p1', horaInicio: '10:30', horaFin: '11:20' }] },
-      { clienteId: 'ht2', nombre: 'Bachillerato', vigenciaInicio: '', vigenciaFin: '', periodos: [{ clienteId: 'p2', horaInicio: '10:30', horaFin: '11:20' }] }
+      { clienteId: 'ht1', nombre: 'ESO', vigencias: [], periodos: [{ clienteId: 'p1', horaInicio: '10:30', horaFin: '11:20' }] },
+      { clienteId: 'ht2', nombre: 'Bachillerato', vigencias: [], periodos: [{ clienteId: 'p2', horaInicio: '10:30', horaFin: '11:20' }] }
     ]
     store.grupos = [
       {
@@ -322,8 +334,8 @@ describe('haySolape', () => {
   it('es falso si dos franjas coinciden en día y hora pero sus horarios tipo tienen vigencias que no se solapan', () => {
     const store = useCursoWizardStore()
     store.horariosTipo = [
-      { clienteId: 'ht-reducido', nombre: 'Reducido', vigenciaInicio: '2025-09-01', vigenciaFin: '2025-09-30', periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }] },
-      { clienteId: 'ht-normal', nombre: 'Normal', vigenciaInicio: '2025-10-01', vigenciaFin: '2026-05-31', periodos: [{ clienteId: 'p2', horaInicio: '08:00', horaFin: '09:00' }] }
+      { clienteId: 'ht-reducido', nombre: 'Reducido', vigencias: [{ clienteId: 'v1', fechaInicio: '2025-09-01', fechaFin: '2025-09-30' }], periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }] },
+      { clienteId: 'ht-normal', nombre: 'Normal', vigencias: [{ clienteId: 'v2', fechaInicio: '2025-10-01', fechaFin: '2026-05-31' }], periodos: [{ clienteId: 'p2', horaInicio: '08:00', horaFin: '09:00' }] }
     ]
     store.grupos = [{
       clienteId: 'g1',
@@ -340,8 +352,8 @@ describe('haySolape', () => {
   it('es verdadero si dos franjas coinciden en día y hora y sus vigencias sí se cruzan', () => {
     const store = useCursoWizardStore()
     store.horariosTipo = [
-      { clienteId: 'ht-a', nombre: 'A', vigenciaInicio: '2025-09-01', vigenciaFin: '2025-10-15', periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }] },
-      { clienteId: 'ht-b', nombre: 'B', vigenciaInicio: '2025-10-01', vigenciaFin: '2026-05-31', periodos: [{ clienteId: 'p2', horaInicio: '08:00', horaFin: '09:00' }] }
+      { clienteId: 'ht-a', nombre: 'A', vigencias: [{ clienteId: 'v1', fechaInicio: '2025-09-01', fechaFin: '2025-10-15' }], periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }] },
+      { clienteId: 'ht-b', nombre: 'B', vigencias: [{ clienteId: 'v2', fechaInicio: '2025-10-01', fechaFin: '2026-05-31' }], periodos: [{ clienteId: 'p2', horaInicio: '08:00', horaFin: '09:00' }] }
     ]
     store.grupos = [{
       clienteId: 'g1',
@@ -353,5 +365,39 @@ describe('haySolape', () => {
       ]
     }]
     expect(store.haySolape).toBe(true)
+  })
+
+  // Caso real: "Reducido" vigente en dos tramos (septiembre Y junio) no
+  // choca con "Normal" (octubre-mayo) aunque compartan día y hora, porque
+  // ningún tramo de uno se cruza con el del otro.
+  it('es falso si un horario con dos tramos de vigencia no se cruza con otro horario', () => {
+    const store = useCursoWizardStore()
+    store.horariosTipo = [
+      {
+        clienteId: 'ht-reducido',
+        nombre: 'Reducido',
+        vigencias: [
+          { clienteId: 'v1', fechaInicio: '2025-09-01', fechaFin: '2025-09-30' },
+          { clienteId: 'v2', fechaInicio: '2026-06-01', fechaFin: '2026-06-19' }
+        ],
+        periodos: [{ clienteId: 'p1', horaInicio: '08:00', horaFin: '09:00' }]
+      },
+      {
+        clienteId: 'ht-normal',
+        nombre: 'Normal',
+        vigencias: [{ clienteId: 'v3', fechaInicio: '2025-10-01', fechaFin: '2026-05-31' }],
+        periodos: [{ clienteId: 'p2', horaInicio: '08:00', horaFin: '09:00' }]
+      }
+    ]
+    store.grupos = [{
+      clienteId: 'g1',
+      nombre: 'G1',
+      color: '#000',
+      asignaturas: [
+        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1' }] },
+        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2' }] }
+      ]
+    }]
+    expect(store.haySolape).toBe(false)
   })
 })

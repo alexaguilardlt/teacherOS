@@ -23,8 +23,18 @@ const opcionesCurso = computed(() =>
 const { data: horariosTipo } = await useAsyncData('grupo-nuevo-horarios-tipo', async () => {
   const { data } = await supabase
     .from('horarios_tipo')
-    .select('id, curso_id, nombre, vigencia_inicio, vigencia_fin')
+    .select('id, curso_id, nombre')
     .order('creado_en', { ascending: true })
+  return data ?? []
+})
+
+const { data: vigencias } = await useAsyncData('grupo-nuevo-vigencias', async () => {
+  const htIds = (horariosTipo.value ?? []).map(ht => ht.id)
+  if (!htIds.length) return []
+  const { data } = await supabase
+    .from('horario_tipo_vigencias')
+    .select('horario_tipo_id, fecha_inicio, fecha_fin')
+    .in('horario_tipo_id', htIds)
   return data ?? []
 })
 
@@ -48,7 +58,12 @@ const { data: asignaturas } = await useAsyncData('grupo-nuevo-asignaturas', asyn
 })
 
 const horariosTipoDelCurso = computed(() =>
-  (horariosTipo.value ?? []).filter(ht => ht.curso_id === cursoId.value)
+  (horariosTipo.value ?? [])
+    .filter(ht => ht.curso_id === cursoId.value)
+    .map(ht => ({
+      ...ht,
+      vigencias: (vigencias.value ?? []).filter(v => v.horario_tipo_id === ht.id)
+    }))
 )
 
 const periodosDelCurso = computed(() => {

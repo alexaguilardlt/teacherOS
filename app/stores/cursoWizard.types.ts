@@ -16,6 +16,9 @@ export interface TemaWizard {
   clase: 'tema'
   nombre: string
   subtemas: SubtemaWizard[]
+  // Solo se usa si no se añade ningún punto del tema: permite repartir el
+  // tema entero en X sesiones sin tener que desglosarlo en subtemas.
+  duracionSesiones: number
 }
 
 export interface ElementoSueltoWizard {
@@ -50,13 +53,19 @@ export interface PeriodoWizard {
   horaFin: string
 }
 
+export interface VigenciaWizard {
+  clienteId: string
+  fechaInicio: string
+  fechaFin: string
+}
+
 export interface HorarioTipoWizard {
   clienteId: string
   nombre: string
-  // Vigencia opcional (ej. un horario "Reducido" solo en septiembre y
-  // junio). Cadena vacía en ambos campos significa "todo el curso".
-  vigenciaInicio: string
-  vigenciaFin: string
+  // Tramos de vigencia opcionales (ej. un horario "Reducido" vigente en
+  // dos tramos: septiembre y junio). Sin ningún tramo significa "todo el
+  // curso".
+  vigencias: VigenciaWizard[]
   periodos: PeriodoWizard[]
 }
 

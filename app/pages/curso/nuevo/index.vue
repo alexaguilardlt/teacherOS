@@ -15,11 +15,13 @@ const motivosInvalidos = computed(() => {
     if (ht.periodos.some(p => !p.horaInicio || !p.horaFin || p.horaFin <= p.horaInicio)) {
       motivos.push(`"${etiqueta}": alguna franja horaria tiene la hora de inicio o fin vacía o incorrecta.`)
     }
-    if (Boolean(ht.vigenciaInicio) !== Boolean(ht.vigenciaFin)) {
-      motivos.push(`"${etiqueta}": la vigencia solo tiene un extremo relleno (o los dos, o ninguno).`)
-    } else if (ht.vigenciaInicio && ht.vigenciaFin <= ht.vigenciaInicio) {
-      motivos.push(`"${etiqueta}": la fecha de fin de la vigencia debe ser posterior a la de inicio.`)
-    }
+    ht.vigencias.forEach((v) => {
+      if (!v.fechaInicio || !v.fechaFin) {
+        motivos.push(`"${etiqueta}": un tramo de vigencia tiene una fecha vacía.`)
+      } else if (v.fechaFin <= v.fechaInicio) {
+        motivos.push(`"${etiqueta}": la fecha de fin de un tramo de vigencia debe ser posterior a la de inicio.`)
+      }
+    })
   })
 
   store.festivos.forEach((festivo, i) => {
@@ -121,25 +123,50 @@ const motivosInvalidos = computed(() => {
         </div>
 
         <p class="mt-1 text-xs text-muted">
-          Si el mismo patrón de horas aplica en dos épocas del curso (ej. septiembre y junio), duplica este horario y pon la otra vigencia en la copia.
+          Añade un tramo de vigencia por cada época del curso en la que aplique este horario (ej. uno en septiembre y otro en junio). Sin ningún tramo, se aplica todo el curso.
         </p>
 
-        <div class="mt-3 grid gap-3 sm:grid-cols-2">
-          <UFormField label="Vigente desde (opcional, vacío = todo el curso)">
-            <UInput
-              v-model="horarioTipo.vigenciaInicio"
-              type="date"
-              class="w-full"
-            />
-          </UFormField>
+        <div class="mt-3 flex flex-col gap-3">
+          <div
+            v-for="vigencia in horarioTipo.vigencias"
+            :key="vigencia.clienteId"
+            class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+          >
+            <UFormField label="Desde">
+              <UInput
+                v-model="vigencia.fechaInicio"
+                type="date"
+                class="w-full"
+              />
+            </UFormField>
 
-          <UFormField label="Vigente hasta (opcional, vacío = todo el curso)">
-            <UInput
-              v-model="horarioTipo.vigenciaFin"
-              type="date"
-              class="w-full"
+            <UFormField label="Hasta">
+              <UInput
+                v-model="vigencia.fechaFin"
+                type="date"
+                class="w-full"
+              />
+            </UFormField>
+
+            <UButton
+              icon="i-lucide-trash-2"
+              color="neutral"
+              variant="ghost"
+              aria-label="Eliminar tramo de vigencia"
+              @click="store.eliminarVigencia(horarioTipo.clienteId, vigencia.clienteId)"
             />
-          </UFormField>
+          </div>
+
+          <UButton
+            icon="i-lucide-plus"
+            color="neutral"
+            variant="subtle"
+            size="sm"
+            class="self-start"
+            @click="store.agregarVigencia(horarioTipo.clienteId)"
+          >
+            Añadir tramo de vigencia
+          </UButton>
         </div>
       </template>
 
