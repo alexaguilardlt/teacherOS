@@ -4,6 +4,7 @@ const grupoAsignaturaId = route.params.grupoAsignaturaId as string
 
 const supabase = useSupabaseClient()
 const { generar, eliminarTodas } = useReparto()
+const { previsualizarUnaAsignatura, confirmarUnaAsignatura } = useRedistribucion()
 
 const { data: ga } = await useAsyncData(`reparto-ga-${grupoAsignaturaId}`, async () => {
   const { data } = await supabase
@@ -135,6 +136,57 @@ async function onConfirmarTodas() {
     confirmando.value = false
   }
 }
+
+// Saltar una fecha concreta solo para esta asignatura-grupo: no marca el
+// día como no lectivo para el resto del curso (para eso está "marcar día
+// no lectivo" en el dashboard).
+const modalSaltarAbierto = ref(false)
+const fechaASaltar = ref('')
+const previewSalto = ref<PreviewGrupoAsignatura | null>(null)
+const previsualizandoSalto = ref(false)
+const confirmandoSalto = ref(false)
+const errorSalto = ref('')
+
+function abrirModalSaltar() {
+  fechaASaltar.value = ''
+  previewSalto.value = null
+  errorSalto.value = ''
+  modalSaltarAbierto.value = true
+}
+
+async function onPrevisualizarSalto() {
+  if (!fechaASaltar.value) return
+  previsualizandoSalto.value = true
+  errorSalto.value = ''
+  previewSalto.value = null
+  try {
+    const preview = await previsualizarUnaAsignatura(grupoAsignaturaId, fechaASaltar.value)
+    if (!preview) {
+      errorSalto.value = 'Esta asignatura no tiene clase ese día, no hay nada que redistribuir.'
+      return
+    }
+    previewSalto.value = preview
+  } catch (e) {
+    errorSalto.value = (e as { message?: string })?.message || 'No se ha podido calcular la redistribución.'
+  } finally {
+    previsualizandoSalto.value = false
+  }
+}
+
+async function onConfirmarSalto() {
+  if (!previewSalto.value) return
+  confirmandoSalto.value = true
+  errorSalto.value = ''
+  try {
+    await confirmarUnaAsignatura(previewSalto.value)
+    modalSaltarAbierto.value = false
+    await refreshNuxtData()
+  } catch (e) {
+    errorSalto.value = (e as { message?: string })?.message || 'No se ha podido confirmar la redistribución.'
+  } finally {
+    confirmandoSalto.value = false
+  }
+}
 </script>
 
 <template>
@@ -187,6 +239,15 @@ async function onConfirmarTodas() {
         @click="onEliminar"
       >
         Eliminar reparto
+      </UButton>
+
+      <UButton
+        v-if="sesiones?.length"
+        color="neutral"
+        variant="subtle"
+        @click="abrirModalSaltar"
+      >
+        Saltar una fecha (solo esta asignatura)
       </UButton>
     </div>
 
@@ -254,5 +315,73 @@ async function onConfirmarTodas() {
         Volver
       </UButton>
     </div>
+
+    <UModal
+      v-model:open="modalSaltarAbierto"
+      title="Saltar una fecha para esta asignatura"
+    >
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <p class="text-sm text-muted">
+            Solo se reorganiza esta asignatura-grupo; el resto del curso no se toca.
+            Las sesiones ya pasadas se mantienen igual.
+          </p>
+
+          <UFormField label="Fecha a saltar">
+            <UInput
+              v-model="fechaASaltar"
+              type="date"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UButton
+            :disabled="!fechaASaltar"
+            :loading="previsualizandoSalto"
+            @click="onPrevisualizarSalto"
+          >
+            Previsualizar
+          </UButton>
+
+          <div v-if="previewSalto">
+            <p class="mb-2 text-sm font-medium">
+              {{ previewSalto.sesionesAEliminarIds.length }} sesiones futuras se reorganizan en {{ previewSalto.sesionesNuevas.length }} nuevas sesiones.
+            </p>
+            <p
+              v-if="previewSalto.subtemasNoAsignados.length"
+              class="text-sm text-warning"
+            >
+              No caben en el curso: {{ previewSalto.subtemasNoAsignados.join(', ') }}.
+            </p>
+          </div>
+
+          <UAlert
+            v-if="errorSalto"
+            color="error"
+            variant="subtle"
+            :title="errorSalto"
+          />
+        </div>
+      </template>
+
+      <template #footer>
+        <div class="flex w-full justify-between">
+          <UButton
+            color="neutral"
+            variant="ghost"
+            @click="modalSaltarAbierto = false"
+          >
+            Cancelar
+          </UButton>
+          <UButton
+            :disabled="!previewSalto"
+            :loading="confirmandoSalto"
+            @click="onConfirmarSalto"
+          >
+            Confirmar
+          </UButton>
+        </div>
+      </template>
+    </UModal>
   </UContainer>
 </template>

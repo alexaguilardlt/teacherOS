@@ -43,7 +43,7 @@ const pasos = [
   },
   {
     titulo: 'Añade el temario',
-    descripcion: 'Organiza cada asignatura en temas y puntos, marcando la dificultad de cada uno.'
+    descripcion: 'Organiza cada asignatura en temas y puntos, indicando cuánto dura cada uno.'
   },
   {
     titulo: 'Deja que se reparta solo',
@@ -55,7 +55,7 @@ const puntosFuertes = [
   {
     icon: 'i-lucide-calendar-clock',
     titulo: 'Reparto automático',
-    descripcion: 'Distribuye el temario a lo largo del curso según los días lectivos y la dificultad de cada tema.'
+    descripcion: 'Distribuye el temario a lo largo del curso según los días lectivos y la duración de cada punto.'
   },
   {
     icon: 'i-lucide-refresh-cw',

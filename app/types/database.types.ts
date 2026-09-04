@@ -22,30 +22,6 @@ export type Database = {
         }
         Relationships: []
       }
-      reglas_dificultad: {
-        Row: {
-          id: string
-          profesor_id: string
-          dificultad: Database['public']['Enums']['dificultad_subtema']
-          duracion_sesiones: number
-          creado_en: string
-        }
-        Insert: {
-          id?: string
-          profesor_id: string
-          dificultad: Database['public']['Enums']['dificultad_subtema']
-          duracion_sesiones: number
-          creado_en?: string
-        }
-        Update: {
-          id?: string
-          profesor_id?: string
-          dificultad?: Database['public']['Enums']['dificultad_subtema']
-          duracion_sesiones?: number
-          creado_en?: string
-        }
-        Relationships: []
-      }
       asignaturas: {
         Row: {
           id: string
@@ -148,25 +124,31 @@ export type Database = {
       subtemas: {
         Row: {
           id: string
-          tema_id: string
+          asignatura_id: string
+          tema_id: string | null
           nombre: string
-          dificultad: Database['public']['Enums']['dificultad_subtema']
+          tipo: Database['public']['Enums']['subtema_tipo']
+          duracion_sesiones: number
           orden: number
           creado_en: string
         }
         Insert: {
           id?: string
-          tema_id: string
+          asignatura_id: string
+          tema_id?: string | null
           nombre: string
-          dificultad: Database['public']['Enums']['dificultad_subtema']
+          tipo?: Database['public']['Enums']['subtema_tipo']
+          duracion_sesiones: number
           orden?: number
           creado_en?: string
         }
         Update: {
           id?: string
-          tema_id?: string
+          asignatura_id?: string
+          tema_id?: string | null
           nombre?: string
-          dificultad?: Database['public']['Enums']['dificultad_subtema']
+          tipo?: Database['public']['Enums']['subtema_tipo']
+          duracion_sesiones?: number
           orden?: number
           creado_en?: string
         }
@@ -177,7 +159,6 @@ export type Database = {
           id: string
           profesor_id: string
           curso_id: string
-          horario_tipo_id: string | null
           nombre: string
           color: string
           creado_en: string
@@ -186,7 +167,6 @@ export type Database = {
           id?: string
           profesor_id: string
           curso_id: string
-          horario_tipo_id?: string | null
           nombre: string
           color?: string
           creado_en?: string
@@ -195,7 +175,6 @@ export type Database = {
           id?: string
           profesor_id?: string
           curso_id?: string
-          horario_tipo_id?: string | null
           nombre?: string
           color?: string
           creado_en?: string
@@ -207,18 +186,24 @@ export type Database = {
           id: string
           curso_id: string
           nombre: string
+          vigencia_inicio: string | null
+          vigencia_fin: string | null
           creado_en: string
         }
         Insert: {
           id?: string
           curso_id: string
           nombre: string
+          vigencia_inicio?: string | null
+          vigencia_fin?: string | null
           creado_en?: string
         }
         Update: {
           id?: string
           curso_id?: string
           nombre?: string
+          vigencia_inicio?: string | null
+          vigencia_fin?: string | null
           creado_en?: string
         }
         Relationships: []
@@ -274,6 +259,7 @@ export type Database = {
           franja_horaria_id: string
           fecha: string
           estado: Database['public']['Enums']['estado_sesion']
+          notas: string | null
           creado_en: string
         }
         Insert: {
@@ -281,6 +267,7 @@ export type Database = {
           franja_horaria_id: string
           fecha: string
           estado?: Database['public']['Enums']['estado_sesion']
+          notas?: string | null
           creado_en?: string
         }
         Update: {
@@ -288,6 +275,7 @@ export type Database = {
           franja_horaria_id?: string
           fecha?: string
           estado?: Database['public']['Enums']['estado_sesion']
+          notas?: string | null
           creado_en?: string
         }
         Relationships: []
@@ -348,8 +336,8 @@ export type Database = {
     Functions: Record<string, never>
     Enums: {
       dia_semana: 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
-      dificultad_subtema: 'baja' | 'media' | 'alta'
       estado_sesion: 'propuesta' | 'confirmada' | 'cancelada' | 'impartida'
+      subtema_tipo: 'contenido' | 'repaso' | 'examen' | 'exposicion_oral' | 'otro'
     }
     CompositeTypes: Record<string, never>
   }

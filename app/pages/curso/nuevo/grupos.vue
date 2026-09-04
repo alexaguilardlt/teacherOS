@@ -16,20 +16,14 @@ function asignaturaEnGrupo(grupoClienteId: string, asignaturaClienteId: string) 
   return grupo?.asignaturas.find(ga => ga.asignaturaClienteId === asignaturaClienteId)
 }
 
-const opcionesHorarioTipo = computed(() =>
-  store.horariosTipo.map(ht => ({
-    label: ht.nombre || 'Horario sin nombre',
-    value: ht.clienteId
-  }))
+const opcionesPeriodo = computed(() =>
+  store.horariosTipo.flatMap(ht =>
+    ht.periodos.map(periodo => ({
+      label: `${ht.nombre || 'Horario sin nombre'}: ${periodo.horaInicio}–${periodo.horaFin}`,
+      value: periodo.clienteId
+    }))
+  )
 )
-
-function opcionesPeriodo(horarioTipoClienteId: string) {
-  const ht = store.horariosTipo.find(h => h.clienteId === horarioTipoClienteId)
-  return (ht?.periodos ?? []).map(periodo => ({
-    label: `${periodo.horaInicio}–${periodo.horaFin}`,
-    value: periodo.clienteId
-  }))
-}
 </script>
 
 <template>
@@ -84,18 +78,6 @@ function opcionesPeriodo(horarioTipoClienteId: string) {
             @click="store.eliminarGrupo(grupo.clienteId)"
           />
         </div>
-
-        <UFormField
-          label="Horario que sigue este grupo"
-          class="mt-3"
-        >
-          <USelect
-            v-model="grupo.horarioTipoClienteId"
-            :items="opcionesHorarioTipo"
-            value-key="value"
-            class="w-full"
-          />
-        </UFormField>
       </template>
 
       <div class="flex flex-col gap-4">
@@ -114,48 +96,59 @@ function opcionesPeriodo(horarioTipoClienteId: string) {
             v-if="asignaturaEnGrupo(grupo.clienteId, asignatura.clienteId)"
             class="mt-3 flex flex-col gap-2 pl-6"
           >
-            <div
-              v-for="franja in asignaturaEnGrupo(grupo.clienteId, asignatura.clienteId)!.franjas"
-              :key="franja.clienteId"
-              class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+            <p
+              v-if="!opcionesPeriodo.length"
+              class="text-sm text-muted"
             >
-              <UFormField label="Día">
-                <USelect
-                  v-model="franja.diaSemana"
-                  :items="opcionesDia"
-                  value-key="value"
-                  class="w-full"
-                />
-              </UFormField>
+              Todavía no has añadido ningún horario tipo. Puedes seguir sin
+              él y añadir los días y horas más adelante, editando el grupo
+              cuando los conozcas.
+            </p>
 
-              <UFormField label="Franja horaria">
-                <USelect
-                  v-model="franja.periodoClienteId"
-                  :items="opcionesPeriodo(grupo.horarioTipoClienteId)"
-                  value-key="value"
-                  class="w-full"
+            <template v-else>
+              <div
+                v-for="franja in asignaturaEnGrupo(grupo.clienteId, asignatura.clienteId)!.franjas"
+                :key="franja.clienteId"
+                class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+              >
+                <UFormField label="Día">
+                  <USelect
+                    v-model="franja.diaSemana"
+                    :items="opcionesDia"
+                    value-key="value"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UFormField label="Franja horaria">
+                  <USelect
+                    v-model="franja.periodoClienteId"
+                    :items="opcionesPeriodo"
+                    value-key="value"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UButton
+                  icon="i-lucide-trash-2"
+                  color="neutral"
+                  variant="ghost"
+                  aria-label="Eliminar franja horaria"
+                  @click="store.eliminarFranja(grupo.clienteId, asignatura.clienteId, franja.clienteId)"
                 />
-              </UFormField>
+              </div>
 
               <UButton
-                icon="i-lucide-trash-2"
+                icon="i-lucide-plus"
                 color="neutral"
-                variant="ghost"
-                aria-label="Eliminar franja horaria"
-                @click="store.eliminarFranja(grupo.clienteId, asignatura.clienteId, franja.clienteId)"
-              />
-            </div>
-
-            <UButton
-              icon="i-lucide-plus"
-              color="neutral"
-              variant="subtle"
-              size="sm"
-              class="self-start"
-              @click="store.agregarFranja(grupo.clienteId, asignatura.clienteId)"
-            >
-              Añadir franja horaria
-            </UButton>
+                variant="subtle"
+                size="sm"
+                class="self-start"
+                @click="store.agregarFranja(grupo.clienteId, asignatura.clienteId)"
+              >
+                Añadir franja horaria
+              </UButton>
+            </template>
           </div>
         </div>
       </div>

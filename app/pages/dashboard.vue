@@ -2,21 +2,28 @@
 const {
   profesor,
   cursos,
-  festivos,
   asignaturas,
-  grupos,
-  sesiones,
   etiquetaEstado,
   colorEstado,
   actualizandoEstadoId,
   alternarImpartida,
+  guardandoNotasId,
+  guardarNotas,
   detalleSesion,
   mesesCalendario,
   DIAS_SEMANA_CALENDARIO,
   diasSemanaHorario: dias,
   filasHorario,
   celdas,
-  sinNada
+  sinNada,
+  opcionesHorarioTipo,
+  horarioTipoSeleccionadoId,
+  asignaturasPendientesDeReparto,
+  opcionesCurso,
+  cursoSeleccionadoId,
+  festivosDelCurso,
+  sesionesDelCurso,
+  gruposDelCurso
 } = useDashboardReparto()
 
 const { previsualizar, confirmar } = useRedistribucion()
@@ -38,16 +45,30 @@ function onClickCelda(celda: CeldaCalendario | null) {
   if (celda) alternarDia(celda.fecha)
 }
 
+// Notas en edición todavía no guardadas, por id de sesión: hasta que no
+// se pulsa "Guardar nota" no se toca la base de datos.
+const notasEditadas = ref<Record<string, string>>({})
+
+function notaDe(detalle: { id: string, notas: string | null }) {
+  return notasEditadas.value[detalle.id] ?? detalle.notas ?? ''
+}
+
+async function onGuardarNotas(detalle: { id: string, notas: string | null }) {
+  await guardarNotas(detalle.id, notaDe(detalle))
+  const { [detalle.id]: _omitida, ...resto } = notasEditadas.value
+  notasEditadas.value = resto
+}
+
 const sesionesDelDiaSeleccionado = computed(() => {
   if (!diaSeleccionado.value) return []
-  return (sesiones.value ?? [])
+  return sesionesDelCurso.value
     .filter(s => s.fecha === diaSeleccionado.value)
     .map(s => detalleSesion(s))
 })
 
 const diaSeleccionadoEsFestivo = computed(() => {
   if (!diaSeleccionado.value) return false
-  return (festivos.value ?? []).some(f => diaSeleccionado.value! >= f.fecha_inicio && diaSeleccionado.value! <= f.fecha_fin)
+  return festivosDelCurso.value.some(f => diaSeleccionado.value! >= f.fecha_inicio && diaSeleccionado.value! <= f.fecha_fin)
 })
 
 const modalFestivoAbierto = ref(false)
@@ -68,7 +89,7 @@ function abrirModalFestivo() {
 }
 
 async function onPrevisualizar() {
-  const cursoId = cursos.value?.[0]?.id
+  const cursoId = cursoSeleccionadoId.value
   if (!diaSeleccionado.value || !cursoId) return
 
   previsualizando.value = true
@@ -86,7 +107,7 @@ async function onPrevisualizar() {
 }
 
 async function onConfirmarRedistribucion() {
-  const cursoId = cursos.value?.[0]?.id
+  const cursoId = cursoSeleccionadoId.value
   if (!diaSeleccionado.value || !cursoId || !previews.value) return
 
   confirmando.value = true
@@ -154,6 +175,18 @@ async function onConfirmarRedistribucion() {
               Curso
             </h2>
           </template>
+          <UFormField
+            v-if="opcionesCurso.length > 1"
+            label="Viendo"
+            class="mb-3"
+          >
+            <USelect
+              v-model="cursoSeleccionadoId"
+              :items="opcionesCurso"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
           <ul class="flex flex-col gap-2">
             <li
               v-for="curso in cursos"
@@ -229,11 +262,11 @@ async function onConfirmarRedistribucion() {
             </div>
           </template>
           <ul
-            v-if="grupos?.length"
+            v-if="gruposDelCurso.length"
             class="flex flex-col gap-2"
           >
             <li
-              v-for="grupo in grupos"
+              v-for="grupo in gruposDelCurso"
               :key="grupo.id"
               class="flex items-center gap-2"
             >
@@ -271,9 +304,19 @@ async function onConfirmarRedistribucion() {
       <main class="min-w-0 flex-1">
         <UCard class="mb-6">
           <template #header>
-            <h2 class="font-semibold">
-              Horario semanal
-            </h2>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <h2 class="font-semibold">
+                Horario semanal
+              </h2>
+              <USelect
+                v-if="opcionesHorarioTipo.length > 1"
+                v-model="horarioTipoSeleccionadoId"
+                :items="opcionesHorarioTipo"
+                value-key="value"
+                size="sm"
+                class="w-48"
+              />
+            </div>
           </template>
 
           <div
@@ -341,7 +384,7 @@ async function onConfirmarRedistribucion() {
                 Reparto del curso
               </h2>
               <UTabs
-                v-if="sesiones?.length"
+                v-if="sesionesDelCurso.length"
                 v-model="vistaReparto"
                 :items="opcionesVistaReparto"
                 :content="false"
@@ -350,7 +393,29 @@ async function onConfirmarRedistribucion() {
             </div>
           </template>
 
-          <div v-if="sesiones?.length">
+          <div
+            v-if="asignaturasPendientesDeReparto.length"
+            class="mb-4 border-b border-default pb-4"
+          >
+            <p class="mb-3 text-sm text-muted">
+              Asignaturas con horario pero sin reparto generado todavía:
+            </p>
+            <ul class="flex flex-col gap-1">
+              <li
+                v-for="item in asignaturasPendientesDeReparto"
+                :key="item.id"
+              >
+                <NuxtLink
+                  :to="`/reparto/${item.id}`"
+                  class="text-primary text-sm"
+                >
+                  {{ item.asignaturaNombre }} — {{ item.grupoNombre }} →
+                </NuxtLink>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="sesionesDelCurso.length">
             <div
               v-if="vistaReparto === 'lista'"
               class="max-h-[36rem] overflow-y-auto overflow-x-auto"
@@ -377,7 +442,7 @@ async function onConfirmarRedistribucion() {
                 </thead>
                 <tbody>
                   <tr
-                    v-for="sesion in sesiones"
+                    v-for="sesion in sesionesDelCurso"
                     :key="sesion.id"
                     class="border-t border-default"
                   >
@@ -570,6 +635,29 @@ async function onConfirmarRedistribucion() {
                           {{ detalle.estado === 'impartida' ? 'Desmarcar' : 'Marcar impartida' }}
                         </UButton>
                       </div>
+
+                      <UFormField
+                        label="Anotación"
+                        class="mt-2"
+                      >
+                        <UTextarea
+                          :model-value="notaDe(detalle)"
+                          placeholder="Ej. faltó medio grupo, repasar ejercicio 4..."
+                          size="xs"
+                          class="w-full"
+                          @update:model-value="(v) => (notasEditadas[detalle.id] = String(v))"
+                        />
+                        <UButton
+                          class="mt-1"
+                          size="xs"
+                          color="neutral"
+                          variant="subtle"
+                          :loading="guardandoNotasId === detalle.id"
+                          @click="onGuardarNotas(detalle)"
+                        >
+                          Guardar nota
+                        </UButton>
+                      </UFormField>
                     </div>
                   </div>
                 </UCard>
@@ -577,10 +665,10 @@ async function onConfirmarRedistribucion() {
             </div>
           </div>
           <p
-            v-else
+            v-else-if="!asignaturasPendientesDeReparto.length"
             class="text-sm text-muted"
           >
-            Todavía no se ha generado el reparto de ninguna asignatura. Entra en un grupo y pulsa "Ver reparto" en la asignatura que quieras repartir.
+            Todavía no hay ninguna asignatura con horario asignado. Entra en un grupo y añade franjas horarias para poder generar su reparto.
           </p>
         </UCard>
       </main>

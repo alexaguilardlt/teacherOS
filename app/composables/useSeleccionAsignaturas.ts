@@ -28,11 +28,34 @@ interface PeriodoDisponible {
   hora_fin: string
 }
 
+interface HorarioTipoDisponible {
+  id: string
+  nombre: string
+  vigencia_inicio?: string | null
+  vigencia_fin?: string | null
+}
+
+// Dos horarios tipo "se solapan" en el tiempo si, tratando una vigencia
+// vacía como "todo el curso", sus rangos de fechas se cruzan. Sin esto, dos
+// franjas del mismo día y hora pero de horarios tipo que nunca coinciden en
+// el calendario real (ej. "Reducido" en septiembre vs. "Normal" en octubre)
+// se marcarían como conflicto sin serlo.
+function vigenciasSolapan(a: HorarioTipoDisponible | undefined, b: HorarioTipoDisponible | undefined) {
+  const aIni = a?.vigencia_inicio || '0001-01-01'
+  const aFin = a?.vigencia_fin || '9999-12-31'
+  const bIni = b?.vigencia_inicio || '0001-01-01'
+  const bFin = b?.vigencia_fin || '9999-12-31'
+  return aIni <= bFin && bIni <= aFin
+}
+
 // Estado y validación compartidos por las pantallas de creación y edición de
-// grupo: qué asignaturas cursa y en qué día/franja horaria de cada una.
+// grupo: qué asignaturas cursa y en qué día/franja horaria de cada una. Los
+// períodos ofrecidos son los de todos los horarios tipo del curso (cada uno
+// puede tener su propia vigencia, ej. "Reducido" solo en septiembre y
+// junio), etiquetados con el nombre de su horario tipo para distinguirlos.
 export function useSeleccionAsignaturas(
-  horarioTipoId: Ref<string>,
   periodos: Ref<PeriodoDisponible[] | null | undefined>,
+  horariosTipo: Ref<HorarioTipoDisponible[] | null | undefined>,
   seleccionInicial: SeleccionAsignatura[] = []
 ) {
   const seleccion = ref<SeleccionAsignatura[]>(seleccionInicial)
@@ -51,12 +74,14 @@ export function useSeleccionAsignaturas(
   }
 
   const opcionesPeriodo = computed(() =>
-    (periodos.value ?? [])
-      .filter(periodo => periodo.horario_tipo_id === horarioTipoId.value)
-      .map(periodo => ({
-        label: `${periodo.hora_inicio}–${periodo.hora_fin}`,
+    (periodos.value ?? []).map((periodo) => {
+      const nombreHorario = horariosTipo.value?.find(ht => ht.id === periodo.horario_tipo_id)?.nombre
+      const prefijo = nombreHorario ? `${nombreHorario}: ` : ''
+      return {
+        label: `${prefijo}${periodo.hora_inicio}–${periodo.hora_fin}`,
         value: periodo.id
-      }))
+      }
+    })
   )
 
   function agregarFranja(asignaturaId: string) {
@@ -74,15 +99,25 @@ export function useSeleccionAsignaturas(
   }
 
   const haySolape = computed(() => {
+    const periodoPorId = new Map((periodos.value ?? []).map(p => [p.id, p]))
+
     const franjas = seleccion.value
       .flatMap(s => s.franjas)
-      .filter(franja => franja.periodoId)
+      .map(franja => ({ diaSemana: franja.diaSemana, periodo: periodoPorId.get(franja.periodoId) }))
+      .filter((f): f is { diaSemana: DiaSemana, periodo: PeriodoDisponible } => Boolean(f.periodo))
 
     for (let i = 0; i < franjas.length; i++) {
       for (let j = i + 1; j < franjas.length; j++) {
         const a = franjas[i]!
         const b = franjas[j]!
-        if (a.diaSemana === b.diaSemana && a.periodoId === b.periodoId) {
+        const horarioTipoA = horariosTipo.value?.find(ht => ht.id === a.periodo.horario_tipo_id)
+        const horarioTipoB = horariosTipo.value?.find(ht => ht.id === b.periodo.horario_tipo_id)
+        if (
+          a.diaSemana === b.diaSemana
+          && a.periodo.hora_inicio < b.periodo.hora_fin
+          && b.periodo.hora_inicio < a.periodo.hora_fin
+          && vigenciasSolapan(horarioTipoA, horarioTipoB)
+        ) {
           return true
         }
       }

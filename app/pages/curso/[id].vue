@@ -29,7 +29,7 @@ const { data: festivosIniciales } = await useAsyncData(`curso-${cursoId}-festivo
 const { data: horariosTipoIniciales } = await useAsyncData(`curso-${cursoId}-horarios-tipo`, async () => {
   const { data } = await supabase
     .from('horarios_tipo')
-    .select('id, nombre')
+    .select('id, nombre, vigencia_inicio, vigencia_fin')
     .eq('curso_id', cursoId)
     .order('creado_en', { ascending: true })
   return data ?? []
@@ -72,6 +72,8 @@ const horariosTipo = ref((horariosTipoIniciales.value ?? []).map(ht => ({
   id: ht.id as string | null,
   clienteId: crypto.randomUUID(),
   nombre: ht.nombre,
+  vigenciaInicio: ht.vigencia_inicio ?? '',
+  vigenciaFin: ht.vigencia_fin ?? '',
   periodos: (periodosIniciales.value ?? [])
     .filter(periodo => periodo.horario_tipo_id === ht.id)
     .map(periodo => ({
@@ -83,11 +85,39 @@ const horariosTipo = ref((horariosTipoIniciales.value ?? []).map(ht => ({
 })))
 
 function agregarHorarioTipo() {
-  horariosTipo.value.push({ id: null, clienteId: crypto.randomUUID(), nombre: '', periodos: [] })
+  horariosTipo.value.push({
+    id: null,
+    clienteId: crypto.randomUUID(),
+    nombre: '',
+    vigenciaInicio: '',
+    vigenciaFin: '',
+    periodos: []
+  })
 }
 
 function eliminarHorarioTipo(clienteId: string) {
   horariosTipo.value = horariosTipo.value.filter(ht => ht.clienteId !== clienteId)
+}
+
+// Copia las franjas horarias a un horario tipo nuevo (sin id ni vigencia),
+// para el caso de un mismo patrón de horas en dos épocas del curso (ej.
+// "Reducido" en septiembre y en junio).
+function duplicarHorarioTipo(clienteId: string) {
+  const original = horariosTipo.value.find(ht => ht.clienteId === clienteId)
+  if (!original) return
+  horariosTipo.value.push({
+    id: null,
+    clienteId: crypto.randomUUID(),
+    nombre: `${original.nombre} (copia)`,
+    vigenciaInicio: '',
+    vigenciaFin: '',
+    periodos: original.periodos.map(periodo => ({
+      id: null,
+      clienteId: crypto.randomUUID(),
+      horaInicio: periodo.horaInicio,
+      horaFin: periodo.horaFin
+    }))
+  })
 }
 
 function agregarPeriodo(horarioTipoClienteId: string) {
@@ -105,6 +135,16 @@ const horariosTipoValidos = computed(() =>
   horariosTipo.value.every(ht =>
     Boolean(ht.nombre)
     && ht.periodos.every(periodo => periodo.horaInicio && periodo.horaFin && periodo.horaFin > periodo.horaInicio)
+    && Boolean(ht.vigenciaInicio) === Boolean(ht.vigenciaFin)
+    && (!ht.vigenciaInicio || ht.vigenciaFin > ht.vigenciaInicio)
+  )
+)
+
+// dias_no_lectivos exige fecha_fin >= fecha_inicio en base de datos: si no
+// se valida aquí, el error solo aparece al guardar.
+const festivosValidos = computed(() =>
+  festivos.value.every(festivo =>
+    Boolean(festivo.fechaInicio) && (!festivo.fechaFin || festivo.fechaFin >= festivo.fechaInicio)
   )
 )
 
@@ -139,7 +179,7 @@ async function guardar() {
           curso_id: cursoId,
           nombre: festivo.nombre || null,
           fecha_inicio: festivo.fechaInicio,
-          fecha_fin: festivo.fechaFin
+          fecha_fin: festivo.fechaFin || festivo.fechaInicio
         })))
       if (errorFestivos) throw errorFestivos
     }
@@ -166,13 +206,22 @@ async function guardar() {
       if (horarioTipoId) {
         const { error: errorActualizarHT } = await supabase
           .from('horarios_tipo')
-          .update({ nombre: horarioTipo.nombre })
+          .update({
+            nombre: horarioTipo.nombre,
+            vigencia_inicio: horarioTipo.vigenciaInicio || null,
+            vigencia_fin: horarioTipo.vigenciaFin || null
+          })
           .eq('id', horarioTipoId)
         if (errorActualizarHT) throw errorActualizarHT
       } else {
         const { data: htInsertado, error: errorNuevoHT } = await supabase
           .from('horarios_tipo')
-          .insert({ curso_id: cursoId, nombre: horarioTipo.nombre })
+          .insert({
+            curso_id: cursoId,
+            nombre: horarioTipo.nombre,
+            vigencia_inicio: horarioTipo.vigenciaInicio || null,
+            vigencia_fin: horarioTipo.vigenciaFin || null
+          })
           .select('id')
           .single()
         if (errorNuevoHT || !htInsertado) throw errorNuevoHT ?? new Error('horario_tipo')
@@ -284,12 +333,41 @@ async function guardar() {
             />
           </UFormField>
           <UButton
+            icon="i-lucide-copy"
+            color="neutral"
+            variant="ghost"
+            aria-label="Duplicar horario tipo"
+            @click="duplicarHorarioTipo(horarioTipo.clienteId)"
+          />
+          <UButton
             icon="i-lucide-trash-2"
             color="neutral"
             variant="ghost"
             aria-label="Eliminar horario tipo"
             @click="eliminarHorarioTipo(horarioTipo.clienteId)"
           />
+        </div>
+
+        <p class="mt-1 text-xs text-muted">
+          Si el mismo patrón de horas aplica en dos épocas del curso (ej. septiembre y junio), duplica este horario y pon la otra vigencia en la copia.
+        </p>
+
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <UFormField label="Vigente desde (opcional, vacío = todo el curso)">
+            <UInput
+              v-model="horarioTipo.vigenciaInicio"
+              type="date"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UFormField label="Vigente hasta (opcional, vacío = todo el curso)">
+            <UInput
+              v-model="horarioTipo.vigenciaFin"
+              type="date"
+              class="w-full"
+            />
+          </UFormField>
         </div>
       </template>
 
@@ -388,7 +466,7 @@ async function guardar() {
             />
           </UFormField>
 
-          <UFormField label="Hasta">
+          <UFormField label="Hasta (opcional, solo si dura varios días)">
             <UInput
               v-model="festivo.fechaFin"
               type="date"
@@ -426,6 +504,14 @@ async function guardar() {
     />
 
     <UAlert
+      v-if="!festivosValidos"
+      color="error"
+      variant="subtle"
+      title="Completa las fechas de todos los festivos: la de fin no puede ser anterior a la de inicio."
+      class="mb-6"
+    />
+
+    <UAlert
       v-if="errorMessage"
       color="error"
       variant="subtle"
@@ -445,7 +531,7 @@ async function guardar() {
       </UButton>
 
       <UButton
-        :disabled="!horariosTipoValidos"
+        :disabled="!horariosTipoValidos || !festivosValidos"
         :loading="guardando"
         @click="guardar"
       >

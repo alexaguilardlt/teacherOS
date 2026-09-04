@@ -1,22 +1,40 @@
-export type DificultadSubtema = 'baja' | 'media' | 'alta'
 export type DiaSemana = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
+
+// Los elementos sueltos no pertenecen a ningún tema: se reparten igual que
+// un subtema de contenido, pero con nombre y duración propios.
+export type TipoElementoSuelto = 'repaso' | 'examen' | 'exposicion_oral' | 'otro'
 
 export interface SubtemaWizard {
   clienteId: string
   nombre: string
-  dificultad: DificultadSubtema
+  // En bloques de 0.5 sesiones (0.5, 1, 1.5, 2...).
+  duracionSesiones: number
 }
 
 export interface TemaWizard {
   clienteId: string
+  clase: 'tema'
   nombre: string
   subtemas: SubtemaWizard[]
 }
 
+export interface ElementoSueltoWizard {
+  clienteId: string
+  clase: 'suelto'
+  tipo: TipoElementoSuelto
+  nombre: string
+  duracionSesiones: number
+}
+
+export type ElementoTemarioWizard = TemaWizard | ElementoSueltoWizard
+
 export interface AsignaturaWizard {
   clienteId: string
   nombre: string
-  temas: TemaWizard[]
+  // Secuencia única y ordenada: temas (con sus subtemas de contenido) y
+  // elementos sueltos (repaso, examen, exposición oral, otro) se pueden
+  // intercalar libremente.
+  elementos: ElementoTemarioWizard[]
 }
 
 export interface FestivoWizard {
@@ -35,6 +53,10 @@ export interface PeriodoWizard {
 export interface HorarioTipoWizard {
   clienteId: string
   nombre: string
+  // Vigencia opcional (ej. un horario "Reducido" solo en septiembre y
+  // junio). Cadena vacía en ambos campos significa "todo el curso".
+  vigenciaInicio: string
+  vigenciaFin: string
   periodos: PeriodoWizard[]
 }
 
@@ -53,6 +75,5 @@ export interface GrupoWizard {
   clienteId: string
   nombre: string
   color: string
-  horarioTipoClienteId: string
   asignaturas: GrupoAsignaturaWizard[]
 }
