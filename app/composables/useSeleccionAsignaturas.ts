@@ -31,21 +31,21 @@ interface PeriodoDisponible {
 interface HorarioTipoDisponible {
   id: string
   nombre: string
-  vigencia_inicio?: string | null
-  vigencia_fin?: string | null
+  vigencias?: { fecha_inicio: string, fecha_fin: string }[] | null
 }
 
-// Dos horarios tipo "se solapan" en el tiempo si, tratando una vigencia
-// vacía como "todo el curso", sus rangos de fechas se cruzan. Sin esto, dos
-// franjas del mismo día y hora pero de horarios tipo que nunca coinciden en
-// el calendario real (ej. "Reducido" en septiembre vs. "Normal" en octubre)
-// se marcarían como conflicto sin serlo.
+const SIN_LIMITE_INICIO = '0001-01-01'
+const SIN_LIMITE_FIN = '9999-12-31'
+
+// Dos horarios tipo "se solapan" en el tiempo si, tratando un horario sin
+// tramos de vigencia como "todo el curso", alguno de sus tramos se cruza.
+// Sin esto, dos franjas del mismo día y hora pero de horarios tipo que nunca
+// coinciden en el calendario real (ej. "Reducido" en septiembre vs. "Normal"
+// en octubre) se marcarían como conflicto sin serlo.
 function vigenciasSolapan(a: HorarioTipoDisponible | undefined, b: HorarioTipoDisponible | undefined) {
-  const aIni = a?.vigencia_inicio || '0001-01-01'
-  const aFin = a?.vigencia_fin || '9999-12-31'
-  const bIni = b?.vigencia_inicio || '0001-01-01'
-  const bFin = b?.vigencia_fin || '9999-12-31'
-  return aIni <= bFin && bIni <= aFin
+  const tramosA = a?.vigencias?.length ? a.vigencias : [{ fecha_inicio: SIN_LIMITE_INICIO, fecha_fin: SIN_LIMITE_FIN }]
+  const tramosB = b?.vigencias?.length ? b.vigencias : [{ fecha_inicio: SIN_LIMITE_INICIO, fecha_fin: SIN_LIMITE_FIN }]
+  return tramosA.some(ta => tramosB.some(tb => ta.fecha_inicio <= tb.fecha_fin && tb.fecha_inicio <= ta.fecha_fin))
 }
 
 // Estado y validación compartidos por las pantallas de creación y edición de

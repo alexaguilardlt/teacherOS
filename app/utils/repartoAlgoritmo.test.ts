@@ -43,7 +43,7 @@ describe('construirSlots', () => {
     // Todos los lunes de septiembre a noviembre son: 1, 8, 15, 22, 29 sept;
     // 6, 13, 20, 27 oct; 3, 10, 17, 24 nov.
     const slots = construirSlots(
-      [{ franjaId: 'f1', diaSemana: 'lunes', horaInicio: '08:00', vigenciaInicio: '2025-09-01', vigenciaFin: '2025-09-30' }],
+      [{ franjaId: 'f1', diaSemana: 'lunes', horaInicio: '08:00', vigencias: [{ inicio: '2025-09-01', fin: '2025-09-30' }] }],
       '2025-09-01',
       '2025-11-30',
       []
@@ -51,11 +51,30 @@ describe('construirSlots', () => {
     expect(slots.map(s => s.fecha)).toEqual(['2025-09-01', '2025-09-08', '2025-09-15', '2025-09-22', '2025-09-29'])
   })
 
+  it('un horario "Reducido" con dos tramos de vigencia (septiembre y junio) cubre ambos con una sola franja', () => {
+    const slots = construirSlots(
+      [{
+        franjaId: 'reducido',
+        diaSemana: 'lunes',
+        horaInicio: '08:00',
+        vigencias: [
+          { inicio: '2025-09-01', fin: '2025-09-30' },
+          { inicio: '2026-06-01', fin: '2026-06-19' }
+        ]
+      }],
+      '2025-09-01',
+      '2026-06-19',
+      []
+    )
+    expect(slots.filter(s => s.fecha.startsWith('2025-09'))).toHaveLength(5) // lunes de septiembre
+    expect(slots.filter(s => s.fecha.startsWith('2026-06'))).toHaveLength(3) // lunes de 1-19 junio
+  })
+
   it('combina en un mismo grupo franjas con vigencias distintas y complementarias', () => {
     const slots = construirSlots(
       [
-        { franjaId: 'reducido', diaSemana: 'lunes', horaInicio: '08:00', vigenciaInicio: '2025-09-01', vigenciaFin: '2025-09-30' },
-        { franjaId: 'normal', diaSemana: 'lunes', horaInicio: '09:00', vigenciaInicio: '2025-10-01', vigenciaFin: '2025-11-30' }
+        { franjaId: 'reducido', diaSemana: 'lunes', horaInicio: '08:00', vigencias: [{ inicio: '2025-09-01', fin: '2025-09-30' }] },
+        { franjaId: 'normal', diaSemana: 'lunes', horaInicio: '09:00', vigencias: [{ inicio: '2025-10-01', fin: '2025-11-30' }] }
       ],
       '2025-09-01',
       '2025-11-30',
@@ -67,7 +86,7 @@ describe('construirSlots', () => {
 
   it('recorta la vigencia de una franja si se sale de las fechas reales del curso', () => {
     const slots = construirSlots(
-      [{ franjaId: 'f1', diaSemana: 'lunes', horaInicio: '08:00', vigenciaInicio: '2025-08-01', vigenciaFin: '2025-09-30' }],
+      [{ franjaId: 'f1', diaSemana: 'lunes', horaInicio: '08:00', vigencias: [{ inicio: '2025-08-01', fin: '2025-09-30' }] }],
       '2025-09-01',
       '2025-09-14',
       []

@@ -76,7 +76,8 @@ const elementosOrdenables = [
       subtemas: (contenidoPorTema.get(tema.id) ?? [])
         .slice()
         .sort((a, b) => a.orden - b.orden)
-        .map(s => ({ clienteId: crypto.randomUUID(), nombre: s.nombre, duracionSesiones: Number(s.duracion_sesiones) }))
+        .map(s => ({ clienteId: crypto.randomUUID(), nombre: s.nombre, duracionSesiones: Number(s.duracion_sesiones) })),
+      duracionSesiones: 1
     } satisfies ElementoTemarioWizard
   })),
   ...(subtemasIniciales.value ?? []).filter(s => s.tipo !== 'contenido').map(s => ({
@@ -94,7 +95,7 @@ const elementosOrdenables = [
 const elementos = ref<ElementoTemarioWizard[]>(elementosOrdenables.map(e => e.elemento))
 
 function agregarTema() {
-  elementos.value.push({ clienteId: crypto.randomUUID(), clase: 'tema', nombre: '', subtemas: [] })
+  elementos.value.push({ clienteId: crypto.randomUUID(), clase: 'tema', nombre: '', subtemas: [], duracionSesiones: 1 })
 }
 
 function agregarElementoSuelto(tipo: TipoElementoSuelto) {
@@ -176,6 +177,21 @@ async function guardar() {
             })))
           if (errorSubtemas) throw errorSubtemas
           orden += elemento.subtemas.length
+        } else {
+          // Tema sin puntos: se reparte como un único bloque con el
+          // nombre y la duración del propio tema.
+          const { error: errorSubtemaTema } = await supabase
+            .from('subtemas')
+            .insert({
+              asignatura_id: asignaturaId,
+              tema_id: temaInsertado.id,
+              nombre: elemento.nombre,
+              tipo: 'contenido' as const,
+              duracion_sesiones: elemento.duracionSesiones,
+              orden
+            })
+          if (errorSubtemaTema) throw errorSubtemaTema
+          orden += 1
         }
       } else {
         const { error: errorSuelto } = await supabase
@@ -282,6 +298,21 @@ async function eliminarAsignatura() {
             @click="eliminarElemento(elemento.clienteId)"
           />
         </div>
+
+        <UFormField
+          v-if="!elemento.subtemas.length"
+          label="Duración del tema entero (sesiones)"
+          class="mb-3 max-w-xs"
+          help="Si añades puntos del tema, la duración pasa a ser la suma de cada uno."
+        >
+          <UInput
+            v-model.number="elemento.duracionSesiones"
+            type="number"
+            step="0.5"
+            min="0.5"
+            class="w-full"
+          />
+        </UFormField>
 
         <div class="flex flex-col gap-2 pl-4">
           <div

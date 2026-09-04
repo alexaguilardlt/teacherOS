@@ -114,8 +114,16 @@ export function useDashboardReparto() {
   const { data: horariosTipo } = useAsyncData('dashboard-horarios-tipo', async () => {
     const { data, error } = await supabase
       .from('horarios_tipo')
-      .select('id, curso_id, nombre, vigencia_inicio, vigencia_fin')
+      .select('id, curso_id, nombre')
     avisarSiError('horarios_tipo', error)
+    return data ?? []
+  })
+
+  const { data: vigenciasHorariosTipo } = useAsyncData('dashboard-vigencias-horarios-tipo', async () => {
+    const { data, error } = await supabase
+      .from('horario_tipo_vigencias')
+      .select('horario_tipo_id, fecha_inicio, fecha_fin')
+    avisarSiError('horario_tipo_vigencias', error)
     return data ?? []
   })
 
@@ -222,7 +230,12 @@ export function useDashboardReparto() {
   )
 
   const horariosTipoDelCurso = computed(() =>
-    (horariosTipo.value ?? []).filter(ht => ht.curso_id === cursoSeleccionadoId.value)
+    (horariosTipo.value ?? [])
+      .filter(ht => ht.curso_id === cursoSeleccionadoId.value)
+      .map(ht => ({
+        ...ht,
+        vigencias: (vigenciasHorariosTipo.value ?? []).filter(v => v.horario_tipo_id === ht.id)
+      }))
   )
 
   const gaIdsDelCurso = computed(() => {
@@ -378,14 +391,15 @@ export function useDashboardReparto() {
     horariosTipoDelCurso.value.map(ht => ({ label: ht.nombre, value: ht.id }))
   )
 
-  // Por defecto se muestra el horario vigente hoy; si ninguno lo está
-  // (o no tiene vigencia definida), el primero que haya.
+  // Por defecto se muestra el horario vigente hoy (en cualquiera de sus
+  // tramos); si ninguno lo está (o no tiene vigencia definida), el primero
+  // que haya.
   const horarioTipoSeleccionadoId = ref('')
   watch(horariosTipoDelCurso, (lista) => {
     if (horarioTipoSeleccionadoId.value && lista?.some(ht => ht.id === horarioTipoSeleccionadoId.value)) return
     const hoy = new Date().toISOString().slice(0, 10)
     const vigenteHoy = lista?.find(ht =>
-      (!ht.vigencia_inicio || hoy >= ht.vigencia_inicio) && (!ht.vigencia_fin || hoy <= ht.vigencia_fin)
+      !ht.vigencias.length || ht.vigencias.some(v => hoy >= v.fecha_inicio && hoy <= v.fecha_fin)
     )
     horarioTipoSeleccionadoId.value = vigenteHoy?.id ?? lista?.[0]?.id ?? ''
   }, { immediate: true })

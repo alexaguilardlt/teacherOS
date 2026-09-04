@@ -99,6 +99,21 @@ const opcionesTipoSuelto: { tipo: TipoElementoSuelto, etiqueta: string }[] = [
               />
             </div>
 
+            <UFormField
+              v-if="!elemento.subtemas.length"
+              label="Duración del tema entero (sesiones)"
+              class="mb-3 max-w-xs"
+              help="Si añades puntos del tema, la duración pasa a ser la suma de cada uno."
+            >
+              <UInput
+                v-model.number="elemento.duracionSesiones"
+                type="number"
+                step="0.5"
+                min="0.5"
+                class="w-full"
+              />
+            </UFormField>
+
             <div class="flex flex-col gap-2 pl-4">
               <div
                 v-for="(subtema, indiceSubtema) in elemento.subtemas"

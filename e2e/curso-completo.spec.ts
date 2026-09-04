@@ -33,8 +33,9 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   // Horario "Reducido", vigente solo en septiembre.
   await page.getByRole('button', { name: 'Añadir horario tipo' }).click()
   await page.getByLabel('Nombre del horario').nth(0).fill('Reducido')
-  await page.getByLabel('Vigente desde (opcional, vacío = todo el curso)').nth(0).fill('2026-09-09')
-  await page.getByLabel('Vigente hasta (opcional, vacío = todo el curso)').nth(0).fill('2026-09-30')
+  await page.getByRole('button', { name: 'Añadir tramo de vigencia' }).nth(0).click()
+  await page.getByLabel('Desde', { exact: true }).nth(0).fill('2026-09-09')
+  await page.getByLabel('Hasta', { exact: true }).nth(0).fill('2026-09-30')
   await page.getByRole('button', { name: 'Añadir franja horaria' }).nth(0).click()
   await page.getByLabel('Hora inicio').nth(0).fill('06:00')
   await page.getByLabel('Hora fin').nth(0).fill('07:00')
@@ -42,8 +43,9 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   // Horario "Normal", vigente el resto del curso.
   await page.getByRole('button', { name: 'Añadir horario tipo' }).click()
   await page.getByLabel('Nombre del horario').nth(1).fill('Normal')
-  await page.getByLabel('Vigente desde (opcional, vacío = todo el curso)').nth(1).fill('2026-10-01')
-  await page.getByLabel('Vigente hasta (opcional, vacío = todo el curso)').nth(1).fill('2027-05-31')
+  await page.getByRole('button', { name: 'Añadir tramo de vigencia' }).nth(1).click()
+  await page.getByLabel('Desde', { exact: true }).nth(1).fill('2026-10-01')
+  await page.getByLabel('Hasta', { exact: true }).nth(1).fill('2027-05-31')
   await page.getByRole('button', { name: 'Añadir franja horaria' }).nth(1).click()
   await page.getByLabel('Hora inicio').nth(1).fill('07:00')
   await page.getByLabel('Hora fin').nth(1).fill('08:00')
@@ -51,7 +53,7 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   // Festivo real (Navidad, curso 2026/2027).
   await page.getByRole('button', { name: 'Añadir festivo' }).click()
   await page.getByLabel('Nombre', { exact: true }).fill('Navidad')
-  await page.getByLabel('Desde', { exact: true }).fill('2026-12-22')
+  await page.getByLabel('Desde', { exact: true }).last().fill('2026-12-22')
   await page.getByLabel('Hasta (opcional, solo si dura varios días)').fill('2027-01-06')
 
   await expect(page.getByRole('link', { name: 'Siguiente' })).toBeEnabled()

@@ -17,11 +17,10 @@ export interface FranjaParaSlots {
   franjaId: string
   diaSemana: DiaSemana
   horaInicio: string
-  // Vigencia del horario tipo al que pertenece esta franja (ej. un
-  // horario "Reducido" solo vigente en septiembre y junio). Sin vigencia
-  // (undefined) significa "todo el curso".
-  vigenciaInicio?: string
-  vigenciaFin?: string
+  // Tramos de vigencia del horario tipo al que pertenece esta franja (ej.
+  // un horario "Reducido" vigente en dos tramos: septiembre y junio). Sin
+  // ningún tramo (undefined o vacío) significa "todo el curso".
+  vigencias?: RangoFecha[]
 }
 
 export interface RangoFecha {
@@ -58,22 +57,32 @@ export function construirSlots(
   festivos: RangoFecha[]
 ): Slot[] {
   const slots: Slot[] = []
+  const vistos = new Set<string>()
   const unDia = 24 * 60 * 60 * 1000
 
   for (const franja of franjas) {
-    // Cada franja se acota a la vigencia de su propio horario tipo (si la
-    // tiene), recortada además a las fechas reales del curso.
-    const inicio = franja.vigenciaInicio && franja.vigenciaInicio > fechaInicio ? franja.vigenciaInicio : fechaInicio
-    const fin = franja.vigenciaFin && franja.vigenciaFin < fechaFin ? franja.vigenciaFin : fechaFin
-    const inicioMs = new Date(`${inicio}T00:00:00Z`).getTime()
-    const finMs = new Date(`${fin}T00:00:00Z`).getTime()
+    // Cada franja se acota a los tramos de vigencia de su horario tipo (si
+    // los tiene; puede tener varios, ej. septiembre y junio), recortados
+    // además a las fechas reales del curso. Sin tramos, aplica todo el curso.
+    const tramos = franja.vigencias?.length ? franja.vigencias : [{ inicio: fechaInicio, fin: fechaFin }]
 
-    for (let t = inicioMs; t <= finMs; t += unDia) {
-      const diaSemana = DIA_SEMANA_POR_INDICE[new Date(t).getUTCDay()]
-      if (diaSemana !== franja.diaSemana) continue
-      const fechaISO = new Date(t).toISOString().slice(0, 10)
-      if (estaEnFestivo(fechaISO, festivos)) continue
-      slots.push({ franjaId: franja.franjaId, fecha: fechaISO, horaInicio: franja.horaInicio })
+    for (const tramo of tramos) {
+      const inicio = tramo.inicio > fechaInicio ? tramo.inicio : fechaInicio
+      const fin = tramo.fin < fechaFin ? tramo.fin : fechaFin
+      const inicioMs = new Date(`${inicio}T00:00:00Z`).getTime()
+      const finMs = new Date(`${fin}T00:00:00Z`).getTime()
+
+      for (let t = inicioMs; t <= finMs; t += unDia) {
+        const diaSemana = DIA_SEMANA_POR_INDICE[new Date(t).getUTCDay()]
+        if (diaSemana !== franja.diaSemana) continue
+        const fechaISO = new Date(t).toISOString().slice(0, 10)
+        if (estaEnFestivo(fechaISO, festivos)) continue
+        // Si dos tramos de vigencia se solapasen entre sí, no duplicar el slot.
+        const clave = `${franja.franjaId}__${fechaISO}`
+        if (vistos.has(clave)) continue
+        vistos.add(clave)
+        slots.push({ franjaId: franja.franjaId, fecha: fechaISO, horaInicio: franja.horaInicio })
+      }
     }
   }
   slots.sort((a, b) => (a.fecha === b.fecha ? a.horaInicio.localeCompare(b.horaInicio) : a.fecha.localeCompare(b.fecha)))

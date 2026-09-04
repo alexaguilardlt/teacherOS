@@ -126,11 +126,16 @@ export function useRedistribucion() {
     const periodoPorId = new Map((periodos ?? []).map(p => [p.id, p]))
 
     const horarioTipoIds = [...new Set((periodos ?? []).map(p => p.horario_tipo_id))]
-    const { data: horariosTipo } = await supabase
-      .from('horarios_tipo')
-      .select('id, vigencia_inicio, vigencia_fin')
-      .in('id', horarioTipoIds)
-    const horarioTipoPorId = new Map((horariosTipo ?? []).map(ht => [ht.id, ht]))
+    const { data: vigencias } = await supabase
+      .from('horario_tipo_vigencias')
+      .select('horario_tipo_id, fecha_inicio, fecha_fin')
+      .in('horario_tipo_id', horarioTipoIds)
+    const vigenciasPorHorarioTipoId = new Map<string, { inicio: string, fin: string }[]>()
+    for (const v of vigencias ?? []) {
+      const lista = vigenciasPorHorarioTipoId.get(v.horario_tipo_id) ?? []
+      lista.push({ inicio: v.fecha_inicio, fin: v.fecha_fin })
+      vigenciasPorHorarioTipoId.set(v.horario_tipo_id, lista)
+    }
 
     const { data: subtemasOrdenados } = await supabase
       .from('subtemas')
@@ -155,13 +160,11 @@ export function useRedistribucion() {
       .map((franja) => {
         const periodo = periodoPorId.get(franja.periodo_id)
         if (!periodo) return null
-        const horarioTipo = horarioTipoPorId.get(periodo.horario_tipo_id)
         return {
           franjaId: franja.id,
           diaSemana: franja.dia_semana,
           horaInicio: periodo.hora_inicio,
-          vigenciaInicio: horarioTipo?.vigencia_inicio ?? undefined,
-          vigenciaFin: horarioTipo?.vigencia_fin ?? undefined
+          vigencias: vigenciasPorHorarioTipoId.get(periodo.horario_tipo_id)
         }
       })
       .filter((f): f is NonNullable<typeof f> => f !== null)

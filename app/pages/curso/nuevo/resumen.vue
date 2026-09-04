@@ -66,13 +66,22 @@ async function guardar() {
         .from('horarios_tipo')
         .insert({
           curso_id: curso.id,
-          nombre: horarioTipo.nombre,
-          vigencia_inicio: horarioTipo.vigenciaInicio || null,
-          vigencia_fin: horarioTipo.vigenciaFin || null
+          nombre: horarioTipo.nombre
         })
         .select('id')
         .single()
       if (errorHorarioTipo || !horarioTipoInsertado) throw errorHorarioTipo ?? new Error('horario_tipo')
+
+      if (horarioTipo.vigencias.length) {
+        const { error: errorVigencias } = await supabase
+          .from('horario_tipo_vigencias')
+          .insert(horarioTipo.vigencias.map(vigencia => ({
+            horario_tipo_id: horarioTipoInsertado.id,
+            fecha_inicio: vigencia.fechaInicio,
+            fecha_fin: vigencia.fechaFin
+          })))
+        if (errorVigencias) throw errorVigencias
+      }
 
       for (const [periodoIndex, periodo] of horarioTipo.periodos.entries()) {
         const { data: periodoInsertado, error: errorPeriodo } = await supabase
@@ -131,6 +140,21 @@ async function guardar() {
               })))
             if (errorSubtemas) throw errorSubtemas
             orden += elemento.subtemas.length
+          } else {
+            // Tema sin puntos: se reparte como un único bloque con el
+            // nombre y la duración del propio tema.
+            const { error: errorSubtemaTema } = await supabase
+              .from('subtemas')
+              .insert({
+                asignatura_id: asignaturaInsertada.id,
+                tema_id: temaInsertado.id,
+                nombre: elemento.nombre,
+                tipo: 'contenido' as const,
+                duracion_sesiones: elemento.duracionSesiones,
+                orden
+              })
+            if (errorSubtemaTema) throw errorSubtemaTema
+            orden += 1
           }
         } else {
           const { error: errorSuelto } = await supabase
@@ -236,10 +260,10 @@ async function guardar() {
         <p class="mb-1 text-sm font-medium">
           {{ horarioTipo.nombre }}
           <span
-            v-if="horarioTipo.vigenciaInicio"
+            v-if="horarioTipo.vigencias.length"
             class="text-xs font-normal text-muted"
           >
-            ({{ horarioTipo.vigenciaInicio }} – {{ horarioTipo.vigenciaFin }})
+            ({{ horarioTipo.vigencias.map(v => `${v.fechaInicio} – ${v.fechaFin}`).join(', ') }})
           </span>
         </p>
         <ul class="text-sm text-muted">
@@ -280,6 +304,12 @@ async function guardar() {
                   class="text-xs"
                 >
                   ({{ elemento.subtemas.map(s => `${s.nombre} · ${s.duracionSesiones} ses.`).join(', ') }})
+                </span>
+                <span
+                  v-else
+                  class="text-xs"
+                >
+                  ({{ elemento.duracionSesiones }} ses.)
                 </span>
               </template>
               <template v-else>

@@ -186,24 +186,42 @@ export type Database = {
           id: string
           curso_id: string
           nombre: string
-          vigencia_inicio: string | null
-          vigencia_fin: string | null
           creado_en: string
         }
         Insert: {
           id?: string
           curso_id: string
           nombre: string
-          vigencia_inicio?: string | null
-          vigencia_fin?: string | null
           creado_en?: string
         }
         Update: {
           id?: string
           curso_id?: string
           nombre?: string
-          vigencia_inicio?: string | null
-          vigencia_fin?: string | null
+          creado_en?: string
+        }
+        Relationships: []
+      }
+      horario_tipo_vigencias: {
+        Row: {
+          id: string
+          horario_tipo_id: string
+          fecha_inicio: string
+          fecha_fin: string
+          creado_en: string
+        }
+        Insert: {
+          id?: string
+          horario_tipo_id: string
+          fecha_inicio: string
+          fecha_fin: string
+          creado_en?: string
+        }
+        Update: {
+          id?: string
+          horario_tipo_id?: string
+          fecha_inicio?: string
+          fecha_fin?: string
           creado_en?: string
         }
         Relationships: []

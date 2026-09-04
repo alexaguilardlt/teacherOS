@@ -25,16 +25,32 @@ const { data: asignaturas } = await useAsyncData('grupo-edit-asignaturas', async
   return data ?? []
 })
 
-const { data: horariosTipo } = await useAsyncData(`grupo-${grupoId}-horarios-tipo`, async () => {
+const { data: horariosTipoBase } = await useAsyncData(`grupo-${grupoId}-horarios-tipo`, async () => {
   const { data } = await supabase
     .from('horarios_tipo')
-    .select('id, nombre, vigencia_inicio, vigencia_fin')
+    .select('id, nombre')
     .eq('curso_id', grupo.value!.curso_id)
     .order('creado_en', { ascending: true })
   return data ?? []
 })
 
-const htIds = (horariosTipo.value ?? []).map(ht => ht.id)
+const htIds = (horariosTipoBase.value ?? []).map(ht => ht.id)
+
+const { data: vigenciasHorariosTipo } = await useAsyncData(`grupo-${grupoId}-vigencias`, async () => {
+  if (!htIds.length) return []
+  const { data } = await supabase
+    .from('horario_tipo_vigencias')
+    .select('horario_tipo_id, fecha_inicio, fecha_fin')
+    .in('horario_tipo_id', htIds)
+  return data ?? []
+})
+
+const horariosTipo = computed(() =>
+  (horariosTipoBase.value ?? []).map(ht => ({
+    ...ht,
+    vigencias: (vigenciasHorariosTipo.value ?? []).filter(v => v.horario_tipo_id === ht.id)
+  }))
+)
 
 const { data: periodos } = await useAsyncData(`grupo-${grupoId}-periodos`, async () => {
   if (!htIds.length) return []
