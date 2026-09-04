@@ -39,6 +39,52 @@ describe('construirSlots', () => {
     expect(slots.map(s => s.fecha)).toEqual(['2025-09-01'])
   })
 
+  it('acota una franja a la vigencia de su horario tipo (ej. horario "Reducido" solo en septiembre)', () => {
+    // Todos los lunes de septiembre a noviembre son: 1, 8, 15, 22, 29 sept;
+    // 6, 13, 20, 27 oct; 3, 10, 17, 24 nov.
+    const slots = construirSlots(
+      [{ franjaId: 'f1', diaSemana: 'lunes', horaInicio: '08:00', vigenciaInicio: '2025-09-01', vigenciaFin: '2025-09-30' }],
+      '2025-09-01',
+      '2025-11-30',
+      []
+    )
+    expect(slots.map(s => s.fecha)).toEqual(['2025-09-01', '2025-09-08', '2025-09-15', '2025-09-22', '2025-09-29'])
+  })
+
+  it('combina en un mismo grupo franjas con vigencias distintas y complementarias', () => {
+    const slots = construirSlots(
+      [
+        { franjaId: 'reducido', diaSemana: 'lunes', horaInicio: '08:00', vigenciaInicio: '2025-09-01', vigenciaFin: '2025-09-30' },
+        { franjaId: 'normal', diaSemana: 'lunes', horaInicio: '09:00', vigenciaInicio: '2025-10-01', vigenciaFin: '2025-11-30' }
+      ],
+      '2025-09-01',
+      '2025-11-30',
+      []
+    )
+    expect(slots.filter(s => s.franjaId === 'reducido')).toHaveLength(5) // lunes de septiembre
+    expect(slots.filter(s => s.franjaId === 'normal')).toHaveLength(8) // lunes de oct+nov
+  })
+
+  it('recorta la vigencia de una franja si se sale de las fechas reales del curso', () => {
+    const slots = construirSlots(
+      [{ franjaId: 'f1', diaSemana: 'lunes', horaInicio: '08:00', vigenciaInicio: '2025-08-01', vigenciaFin: '2025-09-30' }],
+      '2025-09-01',
+      '2025-09-14',
+      []
+    )
+    expect(slots.map(s => s.fecha)).toEqual(['2025-09-01', '2025-09-08'])
+  })
+
+  it('sin vigencia (undefined) la franja aplica a todo el curso, como antes', () => {
+    const slots = construirSlots(
+      [{ franjaId: 'f1', diaSemana: 'lunes', horaInicio: '08:00' }],
+      '2025-09-01',
+      '2025-09-14',
+      []
+    )
+    expect(slots.map(s => s.fecha)).toEqual(['2025-09-01', '2025-09-08'])
+  })
+
   it('ordena los slots por fecha y, dentro del mismo día, por hora', () => {
     const slots = construirSlots(
       [
@@ -59,30 +105,21 @@ describe('construirSlots', () => {
 })
 
 describe('agruparEnBloques', () => {
-  const duracionPorDificultad = new Map([
-    ['baja', 0.5],
-    ['media', 1],
-    ['alta', 2]
-  ])
-
-  it('empareja subtemas fáciles consecutivos en un único bloque de ancho 1', () => {
-    const bloques = agruparEnBloques(
-      [{ id: 'a', dificultad: 'baja' }, { id: 'b', dificultad: 'baja' }],
-      duracionPorDificultad
-    )
+  it('empareja subtemas de 0.5 sesiones consecutivos en un único bloque de ancho 1', () => {
+    const bloques = agruparEnBloques([
+      { id: 'a', duracionSesiones: 0.5 },
+      { id: 'b', duracionSesiones: 0.5 }
+    ])
     expect(bloques).toEqual([{ subtemaIds: ['a', 'b'], ancho: 1 }])
   })
 
-  it('empareja subtemas fáciles aunque haya uno no-fácil de por medio, y deja el último impar como bloque propio', () => {
-    const bloques = agruparEnBloques(
-      [
-        { id: 'a', dificultad: 'baja' },
-        { id: 'b', dificultad: 'baja' },
-        { id: 'c', dificultad: 'media' },
-        { id: 'd', dificultad: 'baja' }
-      ],
-      duracionPorDificultad
-    )
+  it('empareja subtemas de 0.5 sesiones aunque haya uno más largo de por medio, y deja el último impar como bloque propio', () => {
+    const bloques = agruparEnBloques([
+      { id: 'a', duracionSesiones: 0.5 },
+      { id: 'b', duracionSesiones: 0.5 },
+      { id: 'c', duracionSesiones: 1 },
+      { id: 'd', duracionSesiones: 0.5 }
+    ])
     expect(bloques).toEqual([
       { subtemaIds: ['a', 'b'], ancho: 1 },
       { subtemaIds: ['c'], ancho: 1 },
@@ -90,20 +127,17 @@ describe('agruparEnBloques', () => {
     ])
   })
 
-  it('da a los subtemas medios y difíciles su propio bloque con el ancho de su dificultad', () => {
-    const bloques = agruparEnBloques(
-      [{ id: 'a', dificultad: 'media' }, { id: 'b', dificultad: 'alta' }],
-      duracionPorDificultad
-    )
+  it('da a los subtemas de más de 0.5 sesiones su propio bloque con el ancho redondeado a sesiones enteras', () => {
+    const bloques = agruparEnBloques([
+      { id: 'a', duracionSesiones: 1 },
+      { id: 'b', duracionSesiones: 2 },
+      { id: 'c', duracionSesiones: 1.5 }
+    ])
     expect(bloques).toEqual([
       { subtemaIds: ['a'], ancho: 1 },
-      { subtemaIds: ['b'], ancho: 2 }
+      { subtemaIds: ['b'], ancho: 2 },
+      { subtemaIds: ['c'], ancho: 2 }
     ])
-  })
-
-  it('usa duración 1 por defecto si la dificultad no tiene regla configurada', () => {
-    const bloques = agruparEnBloques([{ id: 'x', dificultad: 'desconocida' }], new Map())
-    expect(bloques).toEqual([{ subtemaIds: ['x'], ancho: 1 }])
   })
 })
 

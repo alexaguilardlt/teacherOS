@@ -25,3 +25,8 @@ logs
 
 # Supabase CLI local cache
 supabase/.temp
+
+# Playwright
+/test-results
+/playwright-report
+/blob-report

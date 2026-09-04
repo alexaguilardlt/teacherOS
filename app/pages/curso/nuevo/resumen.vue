@@ -20,14 +20,10 @@ function nombreAsignatura(clienteId: string) {
   return store.asignaturas.find(asignatura => asignatura.clienteId === clienteId)?.nombre ?? ''
 }
 
-function nombreHorarioTipo(clienteId: string) {
-  return store.horariosTipo.find(ht => ht.clienteId === clienteId)?.nombre ?? ''
-}
-
 function etiquetaPeriodo(clienteId: string) {
   for (const ht of store.horariosTipo) {
     const periodo = ht.periodos.find(p => p.clienteId === clienteId)
-    if (periodo) return `${periodo.horaInicio}–${periodo.horaFin}`
+    if (periodo) return `${ht.nombre}: ${periodo.horaInicio}–${periodo.horaFin}`
   }
   return ''
 }
@@ -58,22 +54,25 @@ async function guardar() {
           curso_id: curso.id,
           nombre: festivo.nombre || null,
           fecha_inicio: festivo.fechaInicio,
-          fecha_fin: festivo.fechaFin
+          fecha_fin: festivo.fechaFin || festivo.fechaInicio
         })))
       if (errorFestivos) throw errorFestivos
     }
 
-    const horarioTipoIdPorClienteId = new Map<string, string>()
     const periodoIdPorClienteId = new Map<string, string>()
 
     for (const horarioTipo of store.horariosTipo) {
       const { data: horarioTipoInsertado, error: errorHorarioTipo } = await supabase
         .from('horarios_tipo')
-        .insert({ curso_id: curso.id, nombre: horarioTipo.nombre })
+        .insert({
+          curso_id: curso.id,
+          nombre: horarioTipo.nombre,
+          vigencia_inicio: horarioTipo.vigenciaInicio || null,
+          vigencia_fin: horarioTipo.vigenciaFin || null
+        })
         .select('id')
         .single()
       if (errorHorarioTipo || !horarioTipoInsertado) throw errorHorarioTipo ?? new Error('horario_tipo')
-      horarioTipoIdPorClienteId.set(horarioTipo.clienteId, horarioTipoInsertado.id)
 
       for (const [periodoIndex, periodo] of horarioTipo.periodos.entries()) {
         const { data: periodoInsertado, error: errorPeriodo } = await supabase
@@ -102,24 +101,50 @@ async function guardar() {
       if (errorAsignatura || !asignaturaInsertada) throw errorAsignatura ?? new Error('asignatura')
       asignaturaIdPorClienteId.set(asignatura.clienteId, asignaturaInsertada.id)
 
-      for (const [temaIndex, tema] of asignatura.temas.entries()) {
-        const { data: temaInsertado, error: errorTema } = await supabase
-          .from('temas')
-          .insert({ asignatura_id: asignaturaInsertada.id, nombre: tema.nombre, orden: temaIndex })
-          .select('id')
-          .single()
-        if (errorTema || !temaInsertado) throw errorTema ?? new Error('tema')
+      // orden es una secuencia única por asignatura: temas (con sus
+      // subtemas de contenido) y elementos sueltos (repaso, examen...) se
+      // intercalan en el mismo orden en que se añadieron. El tema consume
+      // su propia posición antes de que empiecen sus subtemas, para que la
+      // secuencia (temas.orden + subtemas.orden) se pueda reconstruir sin
+      // ambigüedad al editar la asignatura más tarde.
+      let orden = 0
+      for (const elemento of asignatura.elementos) {
+        if (elemento.clase === 'tema') {
+          const { data: temaInsertado, error: errorTema } = await supabase
+            .from('temas')
+            .insert({ asignatura_id: asignaturaInsertada.id, nombre: elemento.nombre, orden })
+            .select('id')
+            .single()
+          if (errorTema || !temaInsertado) throw errorTema ?? new Error('tema')
+          orden += 1
 
-        if (tema.subtemas.length) {
-          const { error: errorSubtemas } = await supabase
+          if (elemento.subtemas.length) {
+            const { error: errorSubtemas } = await supabase
+              .from('subtemas')
+              .insert(elemento.subtemas.map((subtema, i) => ({
+                asignatura_id: asignaturaInsertada.id,
+                tema_id: temaInsertado.id,
+                nombre: subtema.nombre,
+                tipo: 'contenido' as const,
+                duracion_sesiones: subtema.duracionSesiones,
+                orden: orden + i
+              })))
+            if (errorSubtemas) throw errorSubtemas
+            orden += elemento.subtemas.length
+          }
+        } else {
+          const { error: errorSuelto } = await supabase
             .from('subtemas')
-            .insert(tema.subtemas.map((subtema, subtemaIndex) => ({
-              tema_id: temaInsertado.id,
-              nombre: subtema.nombre,
-              dificultad: subtema.dificultad,
-              orden: subtemaIndex
-            })))
-          if (errorSubtemas) throw errorSubtemas
+            .insert({
+              asignatura_id: asignaturaInsertada.id,
+              tema_id: null,
+              nombre: elemento.nombre,
+              tipo: elemento.tipo,
+              duracion_sesiones: elemento.duracionSesiones,
+              orden
+            })
+          if (errorSuelto) throw errorSuelto
+          orden += 1
         }
       }
     }
@@ -130,7 +155,6 @@ async function guardar() {
         .insert({
           profesor_id: user.value.sub,
           curso_id: curso.id,
-          horario_tipo_id: horarioTipoIdPorClienteId.get(grupo.horarioTipoClienteId) ?? null,
           nombre: grupo.nombre,
           color: grupo.color
         })
@@ -199,7 +223,7 @@ async function guardar() {
             v-for="festivo in store.festivos"
             :key="festivo.clienteId"
           >
-            {{ festivo.nombre || 'Sin nombre' }} ({{ festivo.fechaInicio }} – {{ festivo.fechaFin }})
+            {{ festivo.nombre || 'Sin nombre' }} ({{ festivo.fechaFin && festivo.fechaFin !== festivo.fechaInicio ? `${festivo.fechaInicio} – ${festivo.fechaFin}` : festivo.fechaInicio }})
           </li>
         </ul>
       </div>
@@ -211,6 +235,12 @@ async function guardar() {
       >
         <p class="mb-1 text-sm font-medium">
           {{ horarioTipo.nombre }}
+          <span
+            v-if="horarioTipo.vigenciaInicio"
+            class="text-xs font-normal text-muted"
+          >
+            ({{ horarioTipo.vigenciaInicio }} – {{ horarioTipo.vigenciaFin }})
+          </span>
         </p>
         <ul class="text-sm text-muted">
           <li
@@ -240,16 +270,22 @@ async function guardar() {
           </p>
           <ul class="mt-1 flex flex-col gap-1 pl-4 text-sm text-muted">
             <li
-              v-for="tema in asignatura.temas"
-              :key="tema.clienteId"
+              v-for="elemento in asignatura.elementos"
+              :key="elemento.clienteId"
             >
-              {{ tema.nombre }}
-              <span
-                v-if="tema.subtemas.length"
-                class="text-xs"
-              >
-                ({{ tema.subtemas.map(s => `${s.nombre} · ${s.dificultad}`).join(', ') }})
-              </span>
+              <template v-if="elemento.clase === 'tema'">
+                {{ elemento.nombre }}
+                <span
+                  v-if="elemento.subtemas.length"
+                  class="text-xs"
+                >
+                  ({{ elemento.subtemas.map(s => `${s.nombre} · ${s.duracionSesiones} ses.`).join(', ') }})
+                </span>
+              </template>
+              <template v-else>
+                {{ elemento.nombre }}
+                <span class="text-xs">({{ elemento.duracionSesiones }} ses.)</span>
+              </template>
             </li>
           </ul>
         </div>
@@ -274,7 +310,6 @@ async function guardar() {
               :style="{ backgroundColor: grupo.color }"
             />
             {{ grupo.nombre }}
-            <span class="text-sm text-muted">· {{ nombreHorarioTipo(grupo.horarioTipoClienteId) }}</span>
           </p>
           <ul class="mt-1 flex flex-col gap-1 pl-4 text-sm text-muted">
             <li

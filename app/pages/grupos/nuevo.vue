@@ -23,7 +23,7 @@ const opcionesCurso = computed(() =>
 const { data: horariosTipo } = await useAsyncData('grupo-nuevo-horarios-tipo', async () => {
   const { data } = await supabase
     .from('horarios_tipo')
-    .select('id, curso_id, nombre')
+    .select('id, curso_id, nombre, vigencia_inicio, vigencia_fin')
     .order('creado_en', { ascending: true })
   return data ?? []
 })
@@ -47,23 +47,20 @@ const { data: asignaturas } = await useAsyncData('grupo-nuevo-asignaturas', asyn
   return data ?? []
 })
 
-const horarioTipoId = ref('')
-
-watch(cursoId, () => {
-  horarioTipoId.value = ''
-})
-
-const opcionesHorarioTipo = computed(() =>
-  (horariosTipo.value ?? [])
-    .filter(ht => ht.curso_id === cursoId.value)
-    .map(ht => ({ label: ht.nombre, value: ht.id }))
+const horariosTipoDelCurso = computed(() =>
+  (horariosTipo.value ?? []).filter(ht => ht.curso_id === cursoId.value)
 )
+
+const periodosDelCurso = computed(() => {
+  const htIds = new Set(horariosTipoDelCurso.value.map(ht => ht.id))
+  return (periodos.value ?? []).filter(periodo => htIds.has(periodo.horario_tipo_id))
+})
 
 const nombre = ref('')
 const color = ref('#3b82f6')
 
 const { seleccion, seleccionDe, alternarAsignatura, agregarFranja, eliminarFranja, opcionesPeriodo, haySolape }
-  = useSeleccionAsignaturas(horarioTipoId, periodos)
+  = useSeleccionAsignaturas(periodosDelCurso, horariosTipoDelCurso)
 
 const guardando = ref(false)
 const errorMessage = ref('')
@@ -81,8 +78,7 @@ async function guardar() {
         profesor_id: user.value.sub,
         curso_id: cursoId.value,
         nombre: nombre.value,
-        color: color.value,
-        horario_tipo_id: horarioTipoId.value || null
+        color: color.value
       })
       .select('id')
       .single()
@@ -156,18 +152,6 @@ async function guardar() {
           >
         </UFormField>
       </div>
-
-      <UFormField
-        label="Horario que sigue este grupo"
-        class="mt-3"
-      >
-        <USelect
-          v-model="horarioTipoId"
-          :items="opcionesHorarioTipo"
-          value-key="value"
-          class="w-full"
-        />
-      </UFormField>
     </UCard>
 
     <p
@@ -192,48 +176,59 @@ async function guardar() {
         v-if="seleccionDe(asignatura.id)"
         class="mt-3 flex flex-col gap-2 pl-6"
       >
-        <div
-          v-for="franja in seleccionDe(asignatura.id)!.franjas"
-          :key="franja.clienteId"
-          class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+        <p
+          v-if="!periodosDelCurso.length"
+          class="text-sm text-muted"
         >
-          <UFormField label="Día">
-            <USelect
-              v-model="franja.diaSemana"
-              :items="OPCIONES_DIA"
-              value-key="value"
-              class="w-full"
-            />
-          </UFormField>
+          Este curso todavía no tiene ningún horario tipo. Puedes seguir sin
+          él y añadir los días y horas más adelante, editando el grupo
+          cuando los conozcas.
+        </p>
 
-          <UFormField label="Franja horaria">
-            <USelect
-              v-model="franja.periodoId"
-              :items="opcionesPeriodo"
-              value-key="value"
-              class="w-full"
+        <template v-else>
+          <div
+            v-for="franja in seleccionDe(asignatura.id)!.franjas"
+            :key="franja.clienteId"
+            class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+          >
+            <UFormField label="Día">
+              <USelect
+                v-model="franja.diaSemana"
+                :items="OPCIONES_DIA"
+                value-key="value"
+                class="w-full"
+              />
+            </UFormField>
+
+            <UFormField label="Franja horaria">
+              <USelect
+                v-model="franja.periodoId"
+                :items="opcionesPeriodo"
+                value-key="value"
+                class="w-full"
+              />
+            </UFormField>
+
+            <UButton
+              icon="i-lucide-trash-2"
+              color="neutral"
+              variant="ghost"
+              aria-label="Eliminar franja horaria"
+              @click="eliminarFranja(asignatura.id, franja.clienteId)"
             />
-          </UFormField>
+          </div>
 
           <UButton
-            icon="i-lucide-trash-2"
+            icon="i-lucide-plus"
             color="neutral"
-            variant="ghost"
-            aria-label="Eliminar franja horaria"
-            @click="eliminarFranja(asignatura.id, franja.clienteId)"
-          />
-        </div>
-
-        <UButton
-          icon="i-lucide-plus"
-          color="neutral"
-          variant="subtle"
-          size="sm"
-          class="self-start"
-          @click="agregarFranja(asignatura.id)"
-        >
-          Añadir franja horaria
-        </UButton>
+            variant="subtle"
+            size="sm"
+            class="self-start"
+            @click="agregarFranja(asignatura.id)"
+          >
+            Añadir franja horaria
+          </UButton>
+        </template>
       </div>
     </div>
 
@@ -265,7 +260,7 @@ async function guardar() {
       </UButton>
 
       <UButton
-        :disabled="haySolape || !nombre || !horarioTipoId"
+        :disabled="haySolape || !nombre"
         :loading="guardando"
         @click="guardar"
       >

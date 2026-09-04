@@ -17,6 +17,11 @@ export interface FranjaParaSlots {
   franjaId: string
   diaSemana: DiaSemana
   horaInicio: string
+  // Vigencia del horario tipo al que pertenece esta franja (ej. un
+  // horario "Reducido" solo vigente en septiembre y junio). Sin vigencia
+  // (undefined) significa "todo el curso".
+  vigenciaInicio?: string
+  vigenciaFin?: string
 }
 
 export interface RangoFecha {
@@ -26,7 +31,7 @@ export interface RangoFecha {
 
 export interface SubtemaParaBloques {
   id: string
-  dificultad: string
+  duracionSesiones: number
 }
 
 export interface Asignacion {
@@ -54,10 +59,15 @@ export function construirSlots(
 ): Slot[] {
   const slots: Slot[] = []
   const unDia = 24 * 60 * 60 * 1000
-  const inicioMs = new Date(`${fechaInicio}T00:00:00Z`).getTime()
-  const finMs = new Date(`${fechaFin}T00:00:00Z`).getTime()
 
   for (const franja of franjas) {
+    // Cada franja se acota a la vigencia de su propio horario tipo (si la
+    // tiene), recortada además a las fechas reales del curso.
+    const inicio = franja.vigenciaInicio && franja.vigenciaInicio > fechaInicio ? franja.vigenciaInicio : fechaInicio
+    const fin = franja.vigenciaFin && franja.vigenciaFin < fechaFin ? franja.vigenciaFin : fechaFin
+    const inicioMs = new Date(`${inicio}T00:00:00Z`).getTime()
+    const finMs = new Date(`${fin}T00:00:00Z`).getTime()
+
     for (let t = inicioMs; t <= finMs; t += unDia) {
       const diaSemana = DIA_SEMANA_POR_INDICE[new Date(t).getUTCDay()]
       if (diaSemana !== franja.diaSemana) continue
@@ -70,17 +80,15 @@ export function construirSlots(
   return slots
 }
 
-// Agrupa los subtemas en bloques según su duración en sesiones: los subtemas
-// "fáciles" (duración <= 0.5) se emparejan de dos en dos en una sola sesión.
-export function agruparEnBloques(
-  subtemasOrdenados: SubtemaParaBloques[],
-  duracionPorDificultad: Map<string, number>
-): Bloque[] {
+// Agrupa los subtemas en bloques según su duración en sesiones (que el
+// profesor introduce directamente, en bloques de 0.5): los subtemas de 0.5
+// sesiones se emparejan de dos en dos en una sola sesión.
+export function agruparEnBloques(subtemasOrdenados: SubtemaParaBloques[]): Bloque[] {
   const bloques: Bloque[] = []
   let pendienteFacil: string | null = null
 
   for (const subtema of subtemasOrdenados) {
-    const duracion = duracionPorDificultad.get(subtema.dificultad) ?? 1
+    const duracion = subtema.duracionSesiones
     if (duracion <= 0.5) {
       if (pendienteFacil) {
         bloques.push({ subtemaIds: [pendienteFacil, subtema.id], ancho: 1 })

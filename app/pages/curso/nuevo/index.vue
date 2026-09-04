@@ -1,5 +1,38 @@
 <script setup lang="ts">
 const store = useCursoWizardStore()
+
+const motivosInvalidos = computed(() => {
+  const motivos: string[] = []
+
+  if (!store.curso.nombre) motivos.push('Falta el nombre del curso.')
+  if (!store.curso.fechaInicio || !store.curso.fechaFin) motivos.push('Falta la fecha de inicio o de fin del curso.')
+  else if (store.curso.fechaFin <= store.curso.fechaInicio) motivos.push('La fecha de fin debe ser posterior a la de inicio.')
+
+  store.horariosTipo.forEach((ht, i) => {
+    const etiqueta = ht.nombre || `Horario tipo ${i + 1}`
+    if (!ht.nombre) motivos.push(`"${etiqueta}": falta el nombre.`)
+    if (!ht.periodos.length) motivos.push(`"${etiqueta}": no tiene ninguna franja horaria añadida.`)
+    if (ht.periodos.some(p => !p.horaInicio || !p.horaFin || p.horaFin <= p.horaInicio)) {
+      motivos.push(`"${etiqueta}": alguna franja horaria tiene la hora de inicio o fin vacía o incorrecta.`)
+    }
+    if (Boolean(ht.vigenciaInicio) !== Boolean(ht.vigenciaFin)) {
+      motivos.push(`"${etiqueta}": la vigencia solo tiene un extremo relleno (o los dos, o ninguno).`)
+    } else if (ht.vigenciaInicio && ht.vigenciaFin <= ht.vigenciaInicio) {
+      motivos.push(`"${etiqueta}": la fecha de fin de la vigencia debe ser posterior a la de inicio.`)
+    }
+  })
+
+  store.festivos.forEach((festivo, i) => {
+    const etiqueta = festivo.nombre || `Festivo ${i + 1}`
+    if (!festivo.fechaInicio) {
+      motivos.push(`"${etiqueta}": falta la fecha.`)
+    } else if (festivo.fechaFin && festivo.fechaFin < festivo.fechaInicio) {
+      motivos.push(`"${etiqueta}": la fecha de fin no puede ser anterior a la de inicio.`)
+    }
+  })
+
+  return motivos
+})
 </script>
 
 <template>
@@ -44,7 +77,7 @@ const store = useCursoWizardStore()
     </UCard>
 
     <p class="mb-2 text-sm text-muted">
-      Si en tu centro no todos los grupos salen a la misma hora (ej. 1º y 2º de ESO frente a 3º-4º y Bachillerato), crea un horario tipo por cada patrón distinto. Luego cada grupo elegirá cuál sigue.
+      Crea un horario tipo por cada patrón de horas distinto: por ejemplo, uno para cuando no todos los grupos salen a la misma hora (1º-2º de ESO frente a 3º-4º y Bachillerato), y otro si en algunos meses hay jornada reducida (ej. septiembre y junio de 8 a 13, frente al resto del curso). Cada franja horaria de una asignatura elegirá qué período de qué horario tipo sigue. Si todavía no conoces el horario definitivo, puedes dejarlo para más tarde y añadirlo cuando lo sepas.
     </p>
 
     <p
@@ -72,12 +105,41 @@ const store = useCursoWizardStore()
             />
           </UFormField>
           <UButton
+            icon="i-lucide-copy"
+            color="neutral"
+            variant="ghost"
+            aria-label="Duplicar horario tipo"
+            @click="store.duplicarHorarioTipo(horarioTipo.clienteId)"
+          />
+          <UButton
             icon="i-lucide-trash-2"
             color="neutral"
             variant="ghost"
             aria-label="Eliminar horario tipo"
             @click="store.eliminarHorarioTipo(horarioTipo.clienteId)"
           />
+        </div>
+
+        <p class="mt-1 text-xs text-muted">
+          Si el mismo patrón de horas aplica en dos épocas del curso (ej. septiembre y junio), duplica este horario y pon la otra vigencia en la copia.
+        </p>
+
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <UFormField label="Vigente desde (opcional, vacío = todo el curso)">
+            <UInput
+              v-model="horarioTipo.vigenciaInicio"
+              type="date"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UFormField label="Vigente hasta (opcional, vacío = todo el curso)">
+            <UInput
+              v-model="horarioTipo.vigenciaFin"
+              type="date"
+              class="w-full"
+            />
+          </UFormField>
         </div>
       </template>
 
@@ -176,7 +238,7 @@ const store = useCursoWizardStore()
             />
           </UFormField>
 
-          <UFormField label="Hasta">
+          <UFormField label="Hasta (opcional, solo si dura varios días)">
             <UInput
               v-model="festivo.fechaFin"
               type="date"
@@ -204,6 +266,25 @@ const store = useCursoWizardStore()
         </UButton>
       </div>
     </UCard>
+
+    <UAlert
+      v-if="motivosInvalidos.length"
+      color="error"
+      variant="subtle"
+      title="Completa esto antes de continuar:"
+      class="mb-6"
+    >
+      <template #description>
+        <ul class="list-inside list-disc">
+          <li
+            v-for="motivo in motivosInvalidos"
+            :key="motivo"
+          >
+            {{ motivo }}
+          </li>
+        </ul>
+      </template>
+    </UAlert>
 
     <div class="flex justify-end">
       <UButton

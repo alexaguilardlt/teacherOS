@@ -1,10 +1,20 @@
 <script setup lang="ts">
+import type { TipoElementoSuelto } from '~/stores/cursoWizard.types'
+
 const store = useCursoWizardStore()
 
-const opcionesDificultad = [
-  { label: 'Baja', value: 'baja' },
-  { label: 'Media', value: 'media' },
-  { label: 'Alta', value: 'alta' }
+const etiquetaTipoSuelto: Record<TipoElementoSuelto, string> = {
+  repaso: 'Repaso',
+  examen: 'Examen',
+  exposicion_oral: 'Exposición oral',
+  otro: 'Otro'
+}
+
+const opcionesTipoSuelto: { tipo: TipoElementoSuelto, etiqueta: string }[] = [
+  { tipo: 'repaso', etiqueta: 'Añadir repaso' },
+  { tipo: 'examen', etiqueta: 'Añadir examen' },
+  { tipo: 'exposicion_oral', etiqueta: 'Añadir exposición oral' },
+  { tipo: 'otro', etiqueta: 'Añadir otro' }
 ]
 </script>
 
@@ -48,84 +58,182 @@ const opcionesDificultad = [
 
       <div class="flex flex-col gap-4">
         <div
-          v-for="tema in asignatura.temas"
-          :key="tema.clienteId"
+          v-for="(elemento, indiceElemento) in asignatura.elementos"
+          :key="elemento.clienteId"
           class="rounded-lg border border-default p-4"
         >
-          <div class="mb-3 flex items-end gap-3">
-            <UFormField
-              label="Tema"
-              class="flex-1"
-            >
-              <UInput
-                v-model="tema.nombre"
-                placeholder="Nombre del tema"
-                class="w-full"
-              />
-            </UFormField>
-            <UButton
-              icon="i-lucide-trash-2"
-              color="neutral"
-              variant="ghost"
-              aria-label="Eliminar tema"
-              @click="store.eliminarTema(asignatura.clienteId, tema.clienteId)"
-            />
-          </div>
-
-          <div class="flex flex-col gap-2 pl-4">
-            <div
-              v-for="subtema in tema.subtemas"
-              :key="subtema.clienteId"
-              class="grid items-end gap-3 sm:grid-cols-[1fr_10rem_auto]"
-            >
-              <UFormField label="Punto del tema">
+          <template v-if="elemento.clase === 'tema'">
+            <div class="mb-3 flex items-end gap-3">
+              <UFormField
+                label="Tema"
+                class="flex-1"
+              >
                 <UInput
-                  v-model="subtema.nombre"
-                  placeholder="Ecuaciones de primer grado"
+                  v-model="elemento.nombre"
+                  placeholder="Nombre del tema"
                   class="w-full"
                 />
               </UFormField>
-
-              <UFormField label="Dificultad">
-                <USelect
-                  v-model="subtema.dificultad"
-                  :items="opcionesDificultad"
-                  value-key="value"
-                  class="w-full"
-                />
-              </UFormField>
-
+              <UButton
+                icon="i-lucide-chevron-up"
+                color="neutral"
+                variant="ghost"
+                :disabled="indiceElemento === 0"
+                aria-label="Mover arriba"
+                @click="store.moverElemento(asignatura.clienteId, elemento.clienteId, 'arriba')"
+              />
+              <UButton
+                icon="i-lucide-chevron-down"
+                color="neutral"
+                variant="ghost"
+                :disabled="indiceElemento === asignatura.elementos.length - 1"
+                aria-label="Mover abajo"
+                @click="store.moverElemento(asignatura.clienteId, elemento.clienteId, 'abajo')"
+              />
               <UButton
                 icon="i-lucide-trash-2"
                 color="neutral"
                 variant="ghost"
-                aria-label="Eliminar punto del tema"
-                @click="store.eliminarSubtema(asignatura.clienteId, tema.clienteId, subtema.clienteId)"
+                aria-label="Eliminar tema"
+                @click="store.eliminarElemento(asignatura.clienteId, elemento.clienteId)"
               />
             </div>
 
+            <div class="flex flex-col gap-2 pl-4">
+              <div
+                v-for="(subtema, indiceSubtema) in elemento.subtemas"
+                :key="subtema.clienteId"
+                class="grid items-end gap-3 sm:grid-cols-[1fr_10rem_auto_auto_auto]"
+              >
+                <UFormField label="Punto del tema">
+                  <UInput
+                    v-model="subtema.nombre"
+                    placeholder="Ecuaciones de primer grado"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UFormField label="Duración (sesiones)">
+                  <UInput
+                    v-model.number="subtema.duracionSesiones"
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UButton
+                  icon="i-lucide-chevron-up"
+                  color="neutral"
+                  variant="ghost"
+                  :disabled="indiceSubtema === 0"
+                  aria-label="Mover arriba"
+                  @click="store.moverSubtema(asignatura.clienteId, elemento.clienteId, subtema.clienteId, 'arriba')"
+                />
+                <UButton
+                  icon="i-lucide-chevron-down"
+                  color="neutral"
+                  variant="ghost"
+                  :disabled="indiceSubtema === elemento.subtemas.length - 1"
+                  aria-label="Mover abajo"
+                  @click="store.moverSubtema(asignatura.clienteId, elemento.clienteId, subtema.clienteId, 'abajo')"
+                />
+                <UButton
+                  icon="i-lucide-trash-2"
+                  color="neutral"
+                  variant="ghost"
+                  aria-label="Eliminar punto del tema"
+                  @click="store.eliminarSubtema(asignatura.clienteId, elemento.clienteId, subtema.clienteId)"
+                />
+              </div>
+
+              <UButton
+                icon="i-lucide-plus"
+                color="neutral"
+                variant="subtle"
+                size="sm"
+                class="self-start"
+                @click="store.agregarSubtema(asignatura.clienteId, elemento.clienteId)"
+              >
+                Añadir punto del tema
+              </UButton>
+            </div>
+          </template>
+
+          <div
+            v-else
+            class="grid items-end gap-3 sm:grid-cols-[8rem_1fr_10rem_auto_auto_auto]"
+          >
+            <p class="text-sm text-muted">
+              {{ etiquetaTipoSuelto[elemento.tipo] }}
+            </p>
+
+            <UFormField label="Nombre">
+              <UInput
+                v-model="elemento.nombre"
+                placeholder="Examen parcial 2ª evaluación"
+                class="w-full"
+              />
+            </UFormField>
+
+            <UFormField label="Duración (sesiones)">
+              <UInput
+                v-model.number="elemento.duracionSesiones"
+                type="number"
+                step="0.5"
+                min="0.5"
+                class="w-full"
+              />
+            </UFormField>
+
             <UButton
-              icon="i-lucide-plus"
+              icon="i-lucide-chevron-up"
               color="neutral"
-              variant="subtle"
-              size="sm"
-              class="self-start"
-              @click="store.agregarSubtema(asignatura.clienteId, tema.clienteId)"
-            >
-              Añadir punto del tema
-            </UButton>
+              variant="ghost"
+              :disabled="indiceElemento === 0"
+              aria-label="Mover arriba"
+              @click="store.moverElemento(asignatura.clienteId, elemento.clienteId, 'arriba')"
+            />
+            <UButton
+              icon="i-lucide-chevron-down"
+              color="neutral"
+              variant="ghost"
+              :disabled="indiceElemento === asignatura.elementos.length - 1"
+              aria-label="Mover abajo"
+              @click="store.moverElemento(asignatura.clienteId, elemento.clienteId, 'abajo')"
+            />
+            <UButton
+              icon="i-lucide-trash-2"
+              color="neutral"
+              variant="ghost"
+              aria-label="Eliminar elemento"
+              @click="store.eliminarElemento(asignatura.clienteId, elemento.clienteId)"
+            />
           </div>
         </div>
 
-        <UButton
-          icon="i-lucide-plus"
-          color="neutral"
-          variant="subtle"
-          class="self-start"
-          @click="store.agregarTema(asignatura.clienteId)"
-        >
-          Añadir tema
-        </UButton>
+        <div class="flex flex-wrap gap-2">
+          <UButton
+            icon="i-lucide-plus"
+            color="neutral"
+            variant="subtle"
+            @click="store.agregarTema(asignatura.clienteId)"
+          >
+            Añadir tema
+          </UButton>
+
+          <UButton
+            v-for="opcion in opcionesTipoSuelto"
+            :key="opcion.tipo"
+            icon="i-lucide-plus"
+            color="neutral"
+            variant="subtle"
+            @click="store.agregarElementoSuelto(asignatura.clienteId, opcion.tipo)"
+          >
+            {{ opcion.etiqueta }}
+          </UButton>
+        </div>
       </div>
     </UCard>
 

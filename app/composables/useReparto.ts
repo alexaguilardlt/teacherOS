@@ -16,7 +16,7 @@ export function useReparto() {
 
     const { data: grupo } = await supabase
       .from('grupos')
-      .select('curso_id, profesor_id')
+      .select('curso_id')
       .eq('id', ga.grupo_id)
       .single()
     if (!grupo) throw new Error('No se ha encontrado el grupo.')
@@ -44,40 +44,25 @@ export function useReparto() {
     const periodoIds = franjas.map(f => f.periodo_id)
     const { data: periodos } = await supabase
       .from('periodos_horarios')
-      .select('id, hora_inicio')
+      .select('id, hora_inicio, horario_tipo_id')
       .in('id', periodoIds)
     const periodoPorId = new Map((periodos ?? []).map(p => [p.id, p]))
 
-    const { data: temas } = await supabase
-      .from('temas')
-      .select('id, orden')
+    const horarioTipoIds = [...new Set((periodos ?? []).map(p => p.horario_tipo_id))]
+    const { data: horariosTipo } = await supabase
+      .from('horarios_tipo')
+      .select('id, vigencia_inicio, vigencia_fin')
+      .in('id', horarioTipoIds)
+    const horarioTipoPorId = new Map((horariosTipo ?? []).map(ht => [ht.id, ht]))
+
+    const { data: subtemasOrdenados } = await supabase
+      .from('subtemas')
+      .select('id, nombre, duracion_sesiones')
       .eq('asignatura_id', ga.asignatura_id)
       .order('orden', { ascending: true })
-    const temaIds = (temas ?? []).map(t => t.id)
-
-    const subtemasRaw = temaIds.length
-      ? (await supabase
-          .from('subtemas')
-          .select('id, tema_id, nombre, orden, dificultad')
-          .in('tema_id', temaIds)).data ?? []
-      : []
-
-    const ordenTema = new Map((temas ?? []).map(t => [t.id, t.orden]))
-    const subtemasOrdenados = [...subtemasRaw].sort((a, b) => {
-      const ta = ordenTema.get(a.tema_id) ?? 0
-      const tb = ordenTema.get(b.tema_id) ?? 0
-      if (ta !== tb) return ta - tb
-      return a.orden - b.orden
-    })
-    if (!subtemasOrdenados.length) {
-      throw new Error('Esta asignatura todavía no tiene temario (temas y puntos del tema).')
+    if (!subtemasOrdenados || !subtemasOrdenados.length) {
+      throw new Error('Esta asignatura todavía no tiene temario ni sesiones especiales (repaso, examen...) planificadas.')
     }
-
-    const { data: reglas } = await supabase
-      .from('reglas_dificultad')
-      .select('dificultad, duracion_sesiones')
-      .eq('profesor_id', grupo.profesor_id)
-    const duracionPorDificultad = new Map((reglas ?? []).map(r => [r.dificultad, Number(r.duracion_sesiones)]))
 
     // --- 1) Fechas de clase reales para cada franja de este grupo+asignatura ---
     const festivosRangos = (festivos ?? []).map(f => ({ inicio: f.fecha_inicio, fin: f.fecha_fin }))
@@ -85,7 +70,14 @@ export function useReparto() {
       .map((franja) => {
         const periodo = periodoPorId.get(franja.periodo_id)
         if (!periodo) return null
-        return { franjaId: franja.id, diaSemana: franja.dia_semana, horaInicio: periodo.hora_inicio }
+        const horarioTipo = horarioTipoPorId.get(periodo.horario_tipo_id)
+        return {
+          franjaId: franja.id,
+          diaSemana: franja.dia_semana,
+          horaInicio: periodo.hora_inicio,
+          vigenciaInicio: horarioTipo?.vigencia_inicio ?? undefined,
+          vigenciaFin: horarioTipo?.vigencia_fin ?? undefined
+        }
       })
       .filter((f): f is NonNullable<typeof f> => f !== null)
 
@@ -95,7 +87,9 @@ export function useReparto() {
     }
 
     // --- 2) Agrupar subtemas en bloques según su duración (0.5 sesiones se emparejan) ---
-    const bloques = agruparEnBloques(subtemasOrdenados, duracionPorDificultad)
+    const bloques = agruparEnBloques(
+      subtemasOrdenados.map(s => ({ id: s.id, duracionSesiones: Number(s.duracion_sesiones) }))
+    )
 
     // --- 3) Repartir los bloques a lo largo de todo el curso (no solo al principio) ---
     const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloques, slots)
