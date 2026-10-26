@@ -77,6 +77,9 @@ const color = ref('#3b82f6')
 const { seleccion, seleccionDe, alternarAsignatura, agregarFranja, eliminarFranja, opcionesPeriodo, haySolape }
   = useSeleccionAsignaturas(periodosDelCurso, horariosTipoDelCurso)
 
+// Se genera aquí para que reintentar tras un fallo no cree dos grupos.
+const grupoId = crypto.randomUUID()
+
 const guardando = ref(false)
 const errorMessage = ref('')
 
@@ -87,38 +90,15 @@ async function guardar() {
   errorMessage.value = ''
 
   try {
-    const { data: grupoInsertado, error: errorGrupo } = await supabase
-      .from('grupos')
-      .insert({
-        profesor_id: user.value.sub,
-        curso_id: cursoId.value,
-        nombre: nombre.value,
-        color: color.value
-      })
-      .select('id')
-      .single()
-    if (errorGrupo || !grupoInsertado) throw errorGrupo ?? new Error('grupo')
-
-    for (const s of seleccion.value) {
-      const { data: gaInsertada, error: errorGa } = await supabase
-        .from('grupo_asignaturas')
-        .insert({ grupo_id: grupoInsertado.id, asignatura_id: s.asignaturaId })
-        .select('id')
-        .single()
-      if (errorGa || !gaInsertada) throw errorGa ?? new Error('grupo_asignatura')
-
-      if (s.franjas.length) {
-        const { error: errorFranjas } = await supabase
-          .from('franjas_horarias')
-          .insert(s.franjas.map(franja => ({
-            grupo_asignatura_id: gaInsertada.id,
-            dia_semana: franja.diaSemana,
-            periodo_id: franja.periodoId,
-            propia: franja.propia
-          })))
-        if (errorFranjas) throw errorFranjas
-      }
-    }
+    // Un grupo nuevo es una edición sin nada existente: mismo cálculo y la
+    // misma función de Postgres (guardar_grupo), todo en una transacción.
+    const plan = planificarGuardadoGrupo(grupoId, seleccion.value, { grupoAsignaturas: [], franjas: [] })
+    const { error } = await supabase.rpc('guardar_grupo', argumentosGuardarGrupo(
+      { id: grupoId, cursoId: cursoId.value, nombre: nombre.value, color: color.value },
+      plan,
+      []
+    ))
+    if (error) throw error
 
     await navigateTo('/dashboard')
   } catch (e) {

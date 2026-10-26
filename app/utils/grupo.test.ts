@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FilaFranja } from './grupo'
-import { planificarGuardadoGrupo } from './grupo'
+import { argumentosGuardarGrupo, planificarGuardadoGrupo } from './grupo'
 
 function generadorIds() {
   let n = 0
@@ -70,5 +70,27 @@ describe('planificarGuardadoGrupo', () => {
     expect(plan.grupoAsignaturaIdsABorrar).toEqual(['ga-bio'])
     // Quitar la asignatura entera no es un cambio de horario: su reparto se va con ella.
     expect(plan.grupoAsignaturaIdsConCambioDeHorario).toEqual([])
+  })
+})
+
+describe('argumentosGuardarGrupo', () => {
+  it('un grupo nuevo lleva todas sus asignaturas y franjas como nuevas', () => {
+    const plan = planificarGuardadoGrupo('g-nuevo', [
+      { asignaturaId: 'mates', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoId: 'p1', propia: true }] }
+    ], { grupoAsignaturas: [], franjas: [] }, generadorIds())
+
+    const args = argumentosGuardarGrupo({ id: 'g-nuevo', cursoId: 'c1', nombre: '1º ESO A', color: '#000000' }, plan, [])
+
+    expect(args).toEqual({
+      p_grupo_id: 'g-nuevo',
+      p_curso_id: 'c1',
+      p_nombre: '1º ESO A',
+      p_color: '#000000',
+      p_grupo_asignaturas_nuevas: [{ id: 'nuevo-1', asignatura_id: 'mates' }],
+      p_franjas: [{ id: 'f1', grupo_asignatura_id: 'nuevo-1', dia_semana: 'lunes', periodo_id: 'p1', propia: true }],
+      p_franja_ids_a_borrar: [],
+      p_grupo_asignatura_ids_a_borrar: [],
+      p_recolocaciones: []
+    })
   })
 })
