@@ -34,7 +34,7 @@ const { data: franjaIds } = await useAsyncData(`reparto-franjas-${grupoAsignatur
   return (data ?? []).map(f => f.id)
 })
 
-const { data: sesiones } = await useAsyncData(`reparto-sesiones-${grupoAsignaturaId}`, async () => {
+const { data: sesiones, refresh: refreshSesiones } = await useAsyncData(`reparto-sesiones-${grupoAsignaturaId}`, async () => {
   if (!franjaIds.value?.length) return []
   const { data } = await supabase
     .from('sesiones')
@@ -44,7 +44,7 @@ const { data: sesiones } = await useAsyncData(`reparto-sesiones-${grupoAsignatur
   return data ?? []
 })
 
-const { data: sesionSubtemas } = await useAsyncData(`reparto-sesion-subtemas-${grupoAsignaturaId}`, async () => {
+const { data: sesionSubtemas, refresh: refreshSesionSubtemas } = await useAsyncData(`reparto-sesion-subtemas-${grupoAsignaturaId}`, async () => {
   const sesionIds = (sesiones.value ?? []).map(s => s.id)
   if (!sesionIds.length) return []
   const { data } = await supabase
@@ -54,13 +54,20 @@ const { data: sesionSubtemas } = await useAsyncData(`reparto-sesion-subtemas-${g
   return data ?? []
 })
 
+// Por asignatura_id y no por tema: los exámenes, repasos y demás elementos
+// sueltos no pertenecen a ningún tema y se quedarían sin nombre.
 const { data: subtemas } = await useAsyncData(`reparto-subtemas-${grupoAsignaturaId}`, async () => {
-  const { data: temas } = await supabase.from('temas').select('id').eq('asignatura_id', ga.value!.asignatura_id)
-  const temaIds = (temas ?? []).map(t => t.id)
-  if (!temaIds.length) return []
-  const { data } = await supabase.from('subtemas').select('id, nombre').in('tema_id', temaIds)
+  const { data } = await supabase.from('subtemas').select('id, nombre').eq('asignatura_id', ga.value!.asignatura_id)
   return data ?? []
 })
+
+// Los enlaces sesión-subtema se piden a partir de las sesiones: si se
+// recargan a la vez (refreshNuxtData()), se pedirían con la lista de
+// sesiones vieja y las nuevas saldrían sin contenido.
+async function recargarSesiones() {
+  await refreshSesiones()
+  await refreshSesionSubtemas()
+}
 
 function nombreSubtema(id: string) {
   return subtemas.value?.find(s => s.id === id)?.nombre ?? ''
@@ -92,7 +99,7 @@ async function onGenerar() {
       await eliminarTodas(grupoAsignaturaId)
     }
     const resultado = await generar(grupoAsignaturaId)
-    await refreshNuxtData()
+    await recargarSesiones()
     mensaje.value = `Se han creado ${resultado.sesionesCreadas} sesiones.`
       + (resultado.subtemasNoAsignados.length
         ? ` No han cabido en el curso: ${resultado.subtemasNoAsignados.join(', ')}.`
@@ -112,7 +119,7 @@ async function onEliminar() {
   mensaje.value = ''
   try {
     await eliminarTodas(grupoAsignaturaId)
-    await refreshNuxtData()
+    await recargarSesiones()
   } catch (e) {
     errorMessage.value = (e as { message?: string })?.message || 'No se ha podido eliminar el reparto.'
   } finally {
@@ -129,7 +136,7 @@ async function onConfirmarTodas() {
       const { error } = await supabase.from('sesiones').update({ estado: 'confirmada' }).in('id', ids)
       if (error) throw error
     }
-    await refreshNuxtData()
+    await recargarSesiones()
   } catch (e) {
     errorMessage.value = (e as { message?: string })?.message || 'No se han podido confirmar las sesiones.'
   } finally {
@@ -180,7 +187,7 @@ async function onConfirmarSalto() {
   try {
     await confirmarUnaAsignatura(previewSalto.value)
     modalSaltarAbierto.value = false
-    await refreshNuxtData()
+    await recargarSesiones()
   } catch (e) {
     errorSalto.value = (e as { message?: string })?.message || 'No se ha podido confirmar la redistribución.'
   } finally {
