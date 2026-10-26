@@ -15,13 +15,13 @@ en Excel/Google Calendar/Word/papel.
 
 La app permite:
 
-1. Definir el temario de una asignatura (temas → subtemas, con una
-   dificultad baja/media/alta por subtema).
+1. Definir el temario de una asignatura (temas → subtemas, con su duración
+   en sesiones, más exámenes, repasos y otros elementos sueltos).
 2. Definir los grupos que cursan cada asignatura y el horario semanal de
    cada combinación grupo+asignatura.
 3. Repartir automáticamente ese temario a lo largo del curso, generando una
    sesión por cada clase real (fecha concreta), respetando los días
-   lectivos disponibles y el peso de cada subtema.
+   lectivos disponibles y la duración de cada subtema.
 4. Cuando un día deja de ser lectivo (festivo, excursión, imprevisto),
    redistribuir automáticamente las sesiones futuras sin que el profesor
    tenga que rehacer el calendario a mano.
@@ -70,97 +70,19 @@ semana" por profesor.
 confiabilidad, accesibilidad, diseño cuidado, privacidad, calidad del
 software.
 
-## Estado real del desarrollo
+## Estado del desarrollo
 
-> Importante para cualquier IA que trabaje en este repo: el `CLAUDE.md` del
-> proyecto describe las fases de trabajo, pero a fecha de este documento el
-> desarrollo ya ha avanzado más allá de lo que ese fichero indica como "en
-> curso". Antes de asumir que algo "no existe todavía", comprobarlo en el
-> código — este documento refleja el estado verificado contra el repositorio.
+Los 6 puntos del objetivo del MVP están cubiertos de principio a fin: auth,
+asistente de curso, asignaturas con temario (duración de cada subtema en
+sesiones, más exámenes, repasos y otros elementos sueltos), grupos con horario
+(incluidas asignaturas compartidas con otra persona), horarios tipo con varios
+tramos de vigencia, festivos, reparto automático, redistribución con vista
+previa (por festivo, por una clase concreta, o al cambiar temario, horario o
+calendario), notas por sesión y dashboard.
 
-Ya implementado y funcionando end-to-end:
+Quedan el pulido, los pendientes de `docs/Mejoras.md` y la visión a largo plazo
+(integraciones, IA, pagos, compartir planificaciones), que todavía no se ha
+empezado a propósito.
 
-- **Auth completo**: registro, login, recuperación de contraseña.
-- **CRUD de asignaturas** con temario (temas → subtemas con dificultad).
-- **CRUD de grupos**, con horario semanal por combinación grupo+asignatura.
-- **Horarios tipo**: un curso puede tener varios patrones de horario (ej.
-  "ESO 1º-2º" vs "ESO 3º-4º y Bachillerato"), reutilizables entre grupos, con
-  franjas horarias definidas por períodos (no horas libres sueltas).
-- **Asistente de creación de curso** (wizard en 4 pasos: datos del curso +
-  horarios tipo + festivos → asignaturas/temario → grupos/horario → resumen
-  y guardado) y también un flujo directo para crear asignaturas/grupos sin
-  pasar por el wizard.
-- **Calendario del curso**: fecha de inicio/fin y días/periodos no
-  lectivos (festivos), editables tanto en el alta como después desde la
-  ficha del curso.
-- **Algoritmo de reparto** (`app/utils/repartoAlgoritmo.ts`, con tests):
-  distribuye el temario entre las sesiones disponibles según reglas de
-  dificultad configurables por profesor, con un ritmo semanal natural.
-- **Generación de sesiones reales** (tabla `sesiones`, instancias con fecha
-  concreta de una franja horaria recurrente), con estados `propuesta` /
-  `confirmada` / `cancelada` / `impartida`.
-- **Redistribución automática** de sesiones futuras al marcar un día como no
-  lectivo.
-- **Dashboard** con calendario visual, vista de horario semanal, marcar
-  sesiones como impartidas desde lista o calendario.
-- **CI** (lint, typecheck, build, tests) y despliegue en Vercel.
-
-En otras palabras: los 6 puntos del "objetivo del MVP" de la visión ya están
-cubiertos a nivel funcional. Lo que queda es sobre todo pulido, casos borde
-del flujo de creación y las integraciones/funcionalidades de la visión a
-largo plazo (Classroom, Excel, IA, pagos, compartir planificaciones), que
-deliberadamente no se han empezado todavía.
-
-## Stack técnico
-
-- **Frontend/backend**: Nuxt 4, Vue 3, Nuxt UI, Tailwind CSS, Pinia (estado
-  del wizard). Gestor de paquetes: pnpm.
-- **Auth + base de datos**: Supabase (Postgres + Row Level Security +
-  `@nuxtjs/supabase`). Toda tabla tiene RLS por `profesor_id` (directo o vía
-  join), de forma que un profesor solo ve sus propios datos.
-- **Tests**: Vitest (unitarios, ej. algoritmo de reparto y store del
-  wizard) + Playwright configurado.
-- **Despliegue**: Vercel, auto-deploy desde `main`, preview por PR.
-- **CI**: GitHub Actions (lint, typecheck, build).
-
-## Modelo de datos — decisiones clave
-
-- `cursos` (año académico, fecha inicio/fin) → `dias_no_lectivos` (festivos,
-  rangos de fecha, editables en cualquier momento, no solo al crear el
-  curso).
-- `asignaturas` → `temas` → `subtemas` (con `dificultad`: baja/media/alta).
-  La dificultad determina automáticamente la duración en sesiones vía
-  `reglas_dificultad` (configurable por profesor), no se introduce a mano
-  subtema a subtema.
-- `grupos` pertenece a un `curso` (no es texto libre) y tiene color para el
-  calendario.
-- `grupo_asignaturas`: relación N:M entre grupo y asignatura (un grupo puede
-  cursar varias asignaturas). El horario cuelga de **esta combinación**, no
-  del grupo ni de la asignatura por separado.
-- `horarios_tipo` (por curso) → `periodos_horarios` (franjas reutilizables,
-  ej. 8:00–8:50) → `franjas_horarias` (día de semana + período, atado a un
-  `grupo_asignatura_id`). Permite que distintos grupos del mismo curso
-  tengan campanadas distintas.
-- `sesiones`: instancia real (fecha concreta) de una `franja_horaria`, con
-  estado (`propuesta`/`confirmada`/`cancelada`/`impartida`). Al marcar un
-  día no lectivo, la redistribución genera sesiones en `propuesta` para
-  previsualizar antes de confirmar — nunca se aplica el cambio directo.
-- `sesion_subtemas`: una sesión se puede repartir entre dos subtemas
-  (campo `fraccion`), para que dos subtemas "fáciles" compartan sesión.
-- Regla de negocio a nivel de base de datos: un profesor no puede tener dos
-  franjas horarias solapadas el mismo día (trigger), porque es la misma
-  persona y no puede dar dos clases a la vez.
-
-## Cómo trabajar en este proyecto (si una IA va a hacer cambios)
-
-- Ir poco a poco, sin sobre-ingeniería ni funcionalidades de fases futuras
-  no pedidas explícitamente.
-- Cambios de stack o arquitectura importantes: discutirlos antes de
-  aplicarlos.
-- Todo cambio debe incluir tests donde ya existe cobertura del área tocada
-  (algoritmo de reparto, store del wizard).
-- Flujo de trabajo con git: ramas `<prefijo>/<descripción>` + PR en GitHub
-  por cada cambio, no commits directos a `main`.
-- El `CLAUDE.md` puede quedarse desactualizado respecto al estado real del
-  código (ya ha pasado una vez): ante la duda, verificar en el código y no
-  fiarse solo de la descripción de fases.
+Cómo está construido, el modelo de datos y el algoritmo:
+`docs/02-architecture/Arquitectura.md`. Reglas de trabajo: `CLAUDE.md`.
