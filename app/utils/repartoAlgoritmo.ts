@@ -181,8 +181,8 @@ function esSesionFija(sesion: SesionExistente, fechaCorte: string) {
 //
 // Los bloques se reconstruyen con el temario completo, igual que en el
 // reparto original, para que el emparejamiento de subtemas de 0.5 sesiones
-// no cambie; un bloque se da por entregado solo si todos sus subtemas
-// aparecen ya en sesiones fijas.
+// no cambie. De cada bloque se descuentan las sesiones que ya se dieron: un
+// subtema de 2 sesiones con una ya dada solo necesita una más.
 export function recolocarDesde(params: {
   subtemasOrdenados: SubtemaParaBloques[]
   sesiones: SesionExistente[]
@@ -195,13 +195,20 @@ export function recolocarDesde(params: {
   const { subtemasOrdenados, sesiones, enlaces, franjas, fechaCorte, fechaFin, festivos } = params
 
   const sesionesFijasIds = new Set(sesiones.filter(s => esSesionFija(s, fechaCorte)).map(s => s.id))
-  const subtemaIdsEntregados = new Set(
-    enlaces.filter(e => sesionesFijasIds.has(e.sesionId)).map(e => e.subtemaId)
-  )
+  const sesionesFijasPorSubtema = new Map<string, Set<string>>()
+  for (const enlace of enlaces) {
+    if (!sesionesFijasIds.has(enlace.sesionId)) continue
+    const ids = sesionesFijasPorSubtema.get(enlace.subtemaId) ?? new Set<string>()
+    ids.add(enlace.sesionId)
+    sesionesFijasPorSubtema.set(enlace.subtemaId, ids)
+  }
 
-  const bloquesPendientes = agruparEnBloques(subtemasOrdenados).filter(
-    bloque => !bloque.subtemaIds.every(id => subtemaIdsEntregados.has(id))
-  )
+  const bloquesPendientes: Bloque[] = []
+  for (const bloque of agruparEnBloques(subtemasOrdenados)) {
+    const sesionesDadas = new Set(bloque.subtemaIds.flatMap(id => [...(sesionesFijasPorSubtema.get(id) ?? [])]))
+    const ancho = bloque.ancho - sesionesDadas.size
+    if (ancho > 0) bloquesPendientes.push({ subtemaIds: bloque.subtemaIds, ancho })
+  }
 
   // Un hueco ocupado por una sesión fija (ej. la clase de hoy, ya marcada
   // como impartida) no se puede volver a usar.
