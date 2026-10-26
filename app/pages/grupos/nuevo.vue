@@ -113,7 +113,8 @@ async function guardar() {
           .insert(s.franjas.map(franja => ({
             grupo_asignatura_id: gaInsertada.id,
             dia_semana: franja.diaSemana,
-            periodo_id: franja.periodoId
+            periodo_id: franja.periodoId,
+            propia: franja.propia
           })))
         if (errorFranjas) throw errorFranjas
       }
@@ -204,7 +205,7 @@ async function guardar() {
           <div
             v-for="franja in seleccionDe(asignatura.id)!.franjas"
             :key="franja.clienteId"
-            class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+            class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto_auto]"
           >
             <UFormField label="Día">
               <USelect
@@ -223,6 +224,12 @@ async function guardar() {
                 class="w-full"
               />
             </UFormField>
+
+            <UCheckbox
+              v-model="franja.propia"
+              label="La imparto yo"
+              class="pb-2"
+            />
 
             <UButton
               icon="i-lucide-trash-2"

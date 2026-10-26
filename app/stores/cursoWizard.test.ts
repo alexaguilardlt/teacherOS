@@ -216,7 +216,7 @@ describe('gruposValidos', () => {
       clienteId: 'g1',
       nombre: '1º ESO A',
       color: '#000',
-      asignaturas: [{ asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: '' }] }]
+      asignaturas: [{ asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: '', propia: true }] }]
     }]
     expect(store.gruposValidos).toBe(false)
   })
@@ -238,7 +238,7 @@ describe('gruposValidos', () => {
       clienteId: 'g1',
       nombre: '1º ESO A',
       color: '#000',
-      asignaturas: [{ asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1' }] }]
+      asignaturas: [{ asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] }]
     }]
     expect(store.gruposValidos).toBe(true)
   })
@@ -265,8 +265,23 @@ describe('haySolape', () => {
       nombre: 'G1',
       color: '#000',
       asignaturas: [
-        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1' }] },
-        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2' }] }
+        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] },
+        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2', propia: true }] }
+      ]
+    }]
+    expect(store.haySolape).toBe(false)
+  })
+
+  it('ignora una franja que no imparte el profesor: no choca con una propia a la misma hora', () => {
+    const store = useCursoWizardStore()
+    darDeAltaHorario(store)
+    store.grupos = [{
+      clienteId: 'g1',
+      nombre: 'G1',
+      color: '#000',
+      asignaturas: [
+        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] },
+        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p1', propia: false }] }
       ]
     }]
     expect(store.haySolape).toBe(false)
@@ -280,8 +295,8 @@ describe('haySolape', () => {
       nombre: 'G1',
       color: '#000',
       asignaturas: [
-        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1' }] },
-        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p1' }] }
+        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] },
+        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] }
       ]
     }]
     expect(store.haySolape).toBe(true)
@@ -301,13 +316,13 @@ describe('haySolape', () => {
         clienteId: 'g1',
         nombre: 'G1',
         color: '#000',
-        asignaturas: [{ asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'martes', periodoClienteId: 'p1' }] }]
+        asignaturas: [{ asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'martes', periodoClienteId: 'p1', propia: true }] }]
       },
       {
         clienteId: 'g2',
         nombre: 'G2',
         color: '#000',
-        asignaturas: [{ asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'martes', periodoClienteId: 'p2' }] }]
+        asignaturas: [{ asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'martes', periodoClienteId: 'p2', propia: true }] }]
       }
     ]
     expect(store.haySolape).toBe(true)
@@ -321,8 +336,8 @@ describe('haySolape', () => {
       nombre: 'G1',
       color: '#000',
       asignaturas: [
-        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1' }] },
-        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'martes', periodoClienteId: 'p1' }] }
+        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] },
+        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'martes', periodoClienteId: 'p1', propia: true }] }
       ]
     }]
     expect(store.haySolape).toBe(false)
@@ -342,8 +357,8 @@ describe('haySolape', () => {
       nombre: 'G1',
       color: '#000',
       asignaturas: [
-        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1' }] },
-        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2' }] }
+        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] },
+        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2', propia: true }] }
       ]
     }]
     expect(store.haySolape).toBe(false)
@@ -360,8 +375,8 @@ describe('haySolape', () => {
       nombre: 'G1',
       color: '#000',
       asignaturas: [
-        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1' }] },
-        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2' }] }
+        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] },
+        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2', propia: true }] }
       ]
     }]
     expect(store.haySolape).toBe(true)
@@ -394,8 +409,8 @@ describe('haySolape', () => {
       nombre: 'G1',
       color: '#000',
       asignaturas: [
-        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1' }] },
-        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2' }] }
+        { asignaturaClienteId: 'a1', franjas: [{ clienteId: 'f1', diaSemana: 'lunes', periodoClienteId: 'p1', propia: true }] },
+        { asignaturaClienteId: 'a2', franjas: [{ clienteId: 'f2', diaSemana: 'lunes', periodoClienteId: 'p2', propia: true }] }
       ]
     }]
     expect(store.haySolape).toBe(false)

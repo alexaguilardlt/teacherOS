@@ -253,6 +253,7 @@ export type Database = {
           grupo_asignatura_id: string
           periodo_id: string
           dia_semana: Database['public']['Enums']['dia_semana']
+          propia: boolean
           creado_en: string
         }
         Insert: {
@@ -260,6 +261,7 @@ export type Database = {
           grupo_asignatura_id: string
           periodo_id: string
           dia_semana: Database['public']['Enums']['dia_semana']
+          propia?: boolean
           creado_en?: string
         }
         Update: {
@@ -267,6 +269,7 @@ export type Database = {
           grupo_asignatura_id?: string
           periodo_id?: string
           dia_semana?: Database['public']['Enums']['dia_semana']
+          propia?: boolean
           creado_en?: string
         }
         Relationships: []

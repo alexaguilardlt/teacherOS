@@ -76,7 +76,7 @@ const { data: franjasIniciales } = await useAsyncData(`grupo-${grupoId}-franjas`
   if (!gaIds.length) return []
   const { data } = await supabase
     .from('franjas_horarias')
-    .select('id, grupo_asignatura_id, dia_semana, periodo_id')
+    .select('id, grupo_asignatura_id, dia_semana, periodo_id, propia')
     .in('grupo_asignatura_id', gaIds)
   return data ?? []
 })
@@ -91,7 +91,8 @@ const seleccionInicial = (grupoAsignaturasIniciales.value ?? []).map(ga => ({
     .map(franja => ({
       clienteId: crypto.randomUUID(),
       diaSemana: franja.dia_semana,
-      periodoId: franja.periodo_id
+      periodoId: franja.periodo_id,
+      propia: franja.propia
     }))
 }))
 
@@ -136,7 +137,8 @@ async function guardar() {
           .insert(s.franjas.map(franja => ({
             grupo_asignatura_id: gaInsertada.id,
             dia_semana: franja.diaSemana,
-            periodo_id: franja.periodoId
+            periodo_id: franja.periodoId,
+            propia: franja.propia
           })))
         if (errorFranjas) throw errorFranjas
       }
@@ -240,7 +242,7 @@ async function eliminarGrupo() {
           <div
             v-for="franja in seleccionDe(asignatura.id)!.franjas"
             :key="franja.clienteId"
-            class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+            class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto_auto]"
           >
             <UFormField label="Día">
               <USelect
@@ -259,6 +261,12 @@ async function eliminarGrupo() {
                 class="w-full"
               />
             </UFormField>
+
+            <UCheckbox
+              v-model="franja.propia"
+              label="La imparto yo"
+              class="pb-2"
+            />
 
             <UButton
               icon="i-lucide-trash-2"

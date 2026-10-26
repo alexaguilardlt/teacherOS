@@ -130,7 +130,7 @@ export function useDashboardReparto() {
   const { data: horarios } = useAsyncData('dashboard-horarios', async () => {
     const { data, error } = await supabase
       .from('franjas_horarias')
-      .select('id, grupo_asignatura_id, dia_semana, periodo_id')
+      .select('id, grupo_asignatura_id, dia_semana, periodo_id, propia')
     avisarSiError('franjas_horarias', error)
     return data ?? []
   })
@@ -265,7 +265,15 @@ export function useDashboardReparto() {
 
   const actualizandoEstadoId = ref<string | null>(null)
 
+  // Las sesiones de una franja que no imparte el profesor cuentan para el
+  // reparto, pero no hay nada que marcar ni anotar por su parte.
+  function esSesionPropia(sesionId: string) {
+    const franjaId = sesiones.value?.find(s => s.id === sesionId)?.franja_horaria_id
+    return horarios.value?.find(f => f.id === franjaId)?.propia !== false
+  }
+
   async function alternarImpartida(sesionId: string, estadoActual: string) {
+    if (!esSesionPropia(sesionId)) return
     const nuevoEstado = estadoActual === 'impartida' ? 'confirmada' : 'impartida'
     actualizandoEstadoId.value = sesionId
     const { error } = await supabase.from('sesiones').update({ estado: nuevoEstado }).eq('id', sesionId)
@@ -277,6 +285,7 @@ export function useDashboardReparto() {
   const guardandoNotasId = ref<string | null>(null)
 
   async function guardarNotas(sesionId: string, notas: string) {
+    if (!esSesionPropia(sesionId)) return
     guardandoNotasId.value = sesionId
     const { error } = await supabase.from('sesiones').update({ notas: notas || null }).eq('id', sesionId)
     guardandoNotasId.value = null
@@ -308,6 +317,7 @@ export function useDashboardReparto() {
       fecha: sesion.fecha,
       estado: sesion.estado,
       notas: sesion.notas,
+      propia: franja?.propia !== false,
       grupo: grupo?.nombre ?? '',
       color: grupo?.color ?? '#94a3b8',
       asignatura: asignatura?.nombre ?? '',
@@ -426,7 +436,7 @@ export function useDashboardReparto() {
   })
 
   const celdas = computed(() => {
-    const map = new Map<string, { asignatura: string, grupo: string, color: string }>()
+    const map = new Map<string, { asignatura: string, grupo: string, color: string, propia: boolean }>()
     for (const franja of horariosDelCurso.value) {
       const periodo = periodosDelHorarioSeleccionado.value.find(item => item.id === franja.periodo_id)
       if (!periodo) continue
@@ -435,7 +445,8 @@ export function useDashboardReparto() {
       map.set(`${periodo.hora_inicio}-${periodo.hora_fin}-${franja.dia_semana}`, {
         asignatura: asignaturas.value?.find(item => item.id === ga?.asignatura_id)?.nombre ?? '',
         grupo: grupo?.nombre ?? '',
-        color: grupo?.color ?? '#94a3b8'
+        color: grupo?.color ?? '#94a3b8',
+        propia: franja.propia !== false
       })
     }
     return map
