@@ -14,6 +14,17 @@
 -- sesiones_a_cancelar, que se procesa en la misma transacción. La firma no
 -- cambia: guardar_temario, guardar_grupo y guardar_curso la siguen
 -- llamando igual. No se borra ni se modifica ningún dato existente.
+--
+-- Formato completo (sustituye al de la cabecera de la 014):
+-- recolocaciones: [{
+--   sesiones_a_cancelar: [uuid],  (opcional) quedan 'cancelada', sin contenido
+--   sesiones_a_eliminar: [uuid],  se borran (no repetir aquí las canceladas)
+--   sesiones_nuevas: [{
+--     franja_horaria_id: uuid, fecha: date, estado: estado_sesion,
+--     subtemas: [{ subtema_id: uuid, fraccion: numeric }]
+--   }]
+-- }]
+-- festivo (opcional): { curso_id, nombre, fecha_inicio, fecha_fin }
 -- =========================================================
 
 create or replace function public.aplicar_recolocacion(
@@ -44,12 +55,14 @@ begin
   for v_recolocacion in select * from jsonb_array_elements(recolocaciones) loop
     -- Las sesiones canceladas se quedan (con su fecha y sus notas) pero sin
     -- contenido: su día queda ocupado para cualquier recolocación posterior.
+    -- Una clase ya impartida nunca se cancela (lo pasado es historia).
     with canceladas as (
       update sesiones
       set estado = 'cancelada'
       where id in (
         select (jsonb_array_elements_text(coalesce(v_recolocacion->'sesiones_a_cancelar', '[]'::jsonb)))::uuid
       )
+        and estado not in ('impartida', 'cancelada')
       returning id
     )
     delete from sesion_subtemas where sesion_id in (select id from canceladas);
