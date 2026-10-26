@@ -149,6 +149,8 @@ export function useDashboardReparto() {
   // temas). En vez de usar `watch` para re-disparar el fetch cuando la anterior
   // resuelve, cada una espera explícitamente a que la anterior termine antes de
   // leer su `.value`: es más predecible que depender del reactivity timing.
+  // Ese `await` solo cubre la primera carga: para volver a pedirlas después
+  // hay que usar recargarReparto(), no refreshNuxtData().
   const sesionSubtemasAsyncData = useAsyncData('dashboard-sesion-subtemas', async () => {
     await sesionesAsyncData
     const sesionIds = (sesiones.value ?? []).map(s => s.id)
@@ -172,7 +174,7 @@ export function useDashboardReparto() {
   })
   const { data: subtemasReparto } = subtemasRepartoAsyncData
 
-  const { data: temasReparto } = useAsyncData('dashboard-temas-reparto', async () => {
+  const temasRepartoAsyncData = useAsyncData('dashboard-temas-reparto', async () => {
     await subtemasRepartoAsyncData
     const temaIds = [...new Set((subtemasReparto.value ?? []).map(s => s.tema_id).filter(id => id !== null))]
     if (!temaIds.length) return []
@@ -180,6 +182,17 @@ export function useDashboardReparto() {
     avisarSiError('temas', error)
     return data ?? []
   })
+  const { data: temasReparto } = temasRepartoAsyncData
+
+  // refreshNuxtData() las vuelve a pedir todas a la vez, y cada una leería
+  // el resultado viejo de la anterior (ej. tras una redistribución, los
+  // subtemas de las sesiones nuevas no llegarían). Aquí van en orden.
+  async function recargarReparto() {
+    await sesionesAsyncData.refresh()
+    await sesionSubtemasAsyncData.refresh()
+    await subtemasRepartoAsyncData.refresh()
+    await temasRepartoAsyncData.refresh()
+  }
 
   const opcionesCurso = computed(() =>
     (cursos.value ?? []).map(c => ({ label: c.nombre, value: c.id }))
@@ -509,6 +522,7 @@ export function useDashboardReparto() {
     asignaturasPendientesDeReparto,
     opcionesCurso,
     cursoSeleccionadoId,
-    gruposDelCurso
+    gruposDelCurso,
+    recargarReparto
   }
 }

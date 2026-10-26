@@ -23,7 +23,8 @@ const {
   cursoSeleccionadoId,
   festivosDelCurso,
   sesionesDelCurso,
-  gruposDelCurso
+  gruposDelCurso,
+  recargarReparto
 } = useDashboardReparto()
 
 const { previsualizar, confirmar } = useRedistribucion()
@@ -119,7 +120,7 @@ async function onConfirmarRedistribucion() {
       previews.value
     )
     modalFestivoAbierto.value = false
-    await refreshNuxtData()
+    await Promise.all([refreshNuxtData('dashboard-festivos'), recargarReparto()])
   } catch (e) {
     errorRedistribucion.value = (e as { message?: string })?.message || 'No se ha podido confirmar la redistribución.'
   } finally {

@@ -22,6 +22,9 @@ test.afterEach(async () => {
 })
 
 test('crear un curso con horario reducido+normal, generar reparto y verlo en el dashboard', async ({ page }) => {
+  // Recorre el asistente entero, genera el reparto y edita el temario: no
+  // cabe en los 30 s por defecto.
+  test.setTimeout(90_000)
   await login(page)
 
   await gotoReady(page, '/curso/nuevo')
@@ -110,10 +113,28 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   await expect(enlaceReparto).toBeVisible()
   await enlaceReparto.click()
   await page.waitForURL(/\/reparto\//)
+  const urlReparto = page.url()
 
   await page.getByRole('button', { name: 'Generar reparto' }).click()
   await expect(page.getByText(/Se han creado \d+ sesiones\./)).toBeVisible()
 
+  // Los elementos sueltos (sin tema) también salen con su nombre.
+  await expect(page.getByText('Examen parcial').first()).toBeVisible()
+
   await gotoReady(page, '/dashboard')
   await expect(page.getByText(nombreGrupo).first()).toBeVisible()
+
+  // Editar el temario después de repartir no puede vaciar las sesiones: el
+  // subtema se actualiza (mismo id) en vez de borrarse y recrearse.
+  await page.getByRole('link', { name: nombreAsignatura, exact: true }).click()
+  await page.waitForURL(/\/asignaturas\//)
+  await page.getByLabel('Punto del tema', { exact: true }).fill('Fracciones y decimales')
+  await page.getByRole('button', { name: 'Guardar cambios' }).click()
+  await page.waitForURL('/dashboard')
+
+  // Con el reparto ya generado, el dashboard deja de enlazarlo como
+  // pendiente: se vuelve directamente a su página.
+  await gotoReady(page, urlReparto)
+  await expect(page.getByText('Fracciones y decimales').first()).toBeVisible()
+  await expect(page.getByText('Examen parcial').first()).toBeVisible()
 })

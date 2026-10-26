@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ElementoTemarioWizard, TemaWizard, TipoElementoSuelto } from '~/stores/cursoWizard.types'
 import { moverEnLista } from '~/utils/listas'
+import { planificarGuardadoTemario } from '~/utils/temario'
 
 const route = useRoute()
 const asignaturaId = route.params.id as string
@@ -59,6 +60,10 @@ const nombre = ref(asignatura.value.nombre)
 // consume su propia posición antes de que empiecen sus subtemas de
 // contenido, así que mezclando ambas listas por "orden" se recupera el
 // orden exacto en el que se añadieron temas y elementos sueltos.
+//
+// Lo que ya existe usa su id de la base de datos como clienteId: al guardar
+// se actualiza en vez de borrarse y recrearse, y las sesiones ya repartidas
+// siguen apuntando a sus subtemas.
 const contenidoPorTema = new Map<string, NonNullable<typeof subtemasIniciales.value>>()
 for (const subtema of (subtemasIniciales.value ?? []).filter(s => s.tipo === 'contenido')) {
   const lista = contenidoPorTema.get(subtema.tema_id!) ?? []
@@ -70,20 +75,20 @@ const elementosOrdenables = [
   ...(temasIniciales.value ?? []).map(tema => ({
     orden: tema.orden,
     elemento: {
-      clienteId: crypto.randomUUID(),
+      clienteId: tema.id,
       clase: 'tema' as const,
       nombre: tema.nombre,
       subtemas: (contenidoPorTema.get(tema.id) ?? [])
         .slice()
         .sort((a, b) => a.orden - b.orden)
-        .map(s => ({ clienteId: crypto.randomUUID(), nombre: s.nombre, duracionSesiones: Number(s.duracion_sesiones) })),
+        .map(s => ({ clienteId: s.id, nombre: s.nombre, duracionSesiones: Number(s.duracion_sesiones) })),
       duracionSesiones: 1
     } satisfies ElementoTemarioWizard
   })),
   ...(subtemasIniciales.value ?? []).filter(s => s.tipo !== 'contenido').map(s => ({
     orden: s.orden,
     elemento: {
-      clienteId: crypto.randomUUID(),
+      clienteId: s.id,
       clase: 'suelto' as const,
       tipo: s.tipo as TipoElementoSuelto,
       nombre: s.nombre,
@@ -141,77 +146,40 @@ async function guardar() {
       .eq('id', asignaturaId)
     if (errorAsignatura) throw errorAsignatura
 
-    const { error: errorBorrarSubtemas } = await supabase
-      .from('subtemas')
-      .delete()
-      .eq('asignatura_id', asignaturaId)
-    if (errorBorrarSubtemas) throw errorBorrarSubtemas
+    const plan = planificarGuardadoTemario(asignaturaId, elementos.value, {
+      temaIds: (temasIniciales.value ?? []).map(t => t.id),
+      subtemaIds: (subtemasIniciales.value ?? []).map(s => s.id)
+    })
 
-    const { error: errorBorrarTemas } = await supabase
-      .from('temas')
-      .delete()
-      .eq('asignatura_id', asignaturaId)
-    if (errorBorrarTemas) throw errorBorrarTemas
+    // Primero se guarda todo lo que queda y al final se borra lo quitado:
+    // si algo falla a mitad, como mucho se queda sin aplicar parte de la
+    // edición, pero no se pierde nada de lo que ya había.
+    if (plan.temas.length) {
+      const { error: errorTemas } = await supabase.from('temas').upsert(plan.temas)
+      if (errorTemas) throw errorTemas
+    }
 
-    let orden = 0
-    for (const elemento of elementos.value) {
-      if (elemento.clase === 'tema') {
-        const { data: temaInsertado, error: errorTema } = await supabase
-          .from('temas')
-          .insert({ asignatura_id: asignaturaId, nombre: elemento.nombre, orden })
-          .select('id')
-          .single()
-        if (errorTema || !temaInsertado) throw errorTema ?? new Error('tema')
-        orden += 1
+    if (plan.subtemas.length) {
+      const { error: errorSubtemas } = await supabase.from('subtemas').upsert(plan.subtemas)
+      if (errorSubtemas) throw errorSubtemas
+    }
 
-        if (elemento.subtemas.length) {
-          const { error: errorSubtemas } = await supabase
-            .from('subtemas')
-            .insert(elemento.subtemas.map((subtema, i) => ({
-              asignatura_id: asignaturaId,
-              tema_id: temaInsertado.id,
-              nombre: subtema.nombre,
-              tipo: 'contenido' as const,
-              duracion_sesiones: subtema.duracionSesiones,
-              orden: orden + i
-            })))
-          if (errorSubtemas) throw errorSubtemas
-          orden += elemento.subtemas.length
-        } else {
-          // Tema sin puntos: se reparte como un único bloque con el
-          // nombre y la duración del propio tema.
-          const { error: errorSubtemaTema } = await supabase
-            .from('subtemas')
-            .insert({
-              asignatura_id: asignaturaId,
-              tema_id: temaInsertado.id,
-              nombre: elemento.nombre,
-              tipo: 'contenido' as const,
-              duracion_sesiones: elemento.duracionSesiones,
-              orden
-            })
-          if (errorSubtemaTema) throw errorSubtemaTema
-          orden += 1
-        }
-      } else {
-        const { error: errorSuelto } = await supabase
-          .from('subtemas')
-          .insert({
-            asignatura_id: asignaturaId,
-            tema_id: null,
-            nombre: elemento.nombre,
-            tipo: elemento.tipo,
-            duracion_sesiones: elemento.duracionSesiones,
-            orden
-          })
-        if (errorSuelto) throw errorSuelto
-        orden += 1
-      }
+    if (plan.subtemaIdsABorrar.length) {
+      const { error: errorBorrarSubtemas } = await supabase.from('subtemas').delete().in('id', plan.subtemaIdsABorrar)
+      if (errorBorrarSubtemas) throw errorBorrarSubtemas
+    }
+
+    if (plan.temaIdsABorrar.length) {
+      const { error: errorBorrarTemas } = await supabase.from('temas').delete().in('id', plan.temaIdsABorrar)
+      if (errorBorrarTemas) throw errorBorrarTemas
     }
 
     await navigateTo('/dashboard')
   } catch (e) {
     errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+    // Lo que sí llegó a guardarse pasa a contar como existente: si se
+    // vuelve a intentar, se borra lo que sobre en vez de duplicarse.
+    await refreshNuxtData([`asignatura-${asignaturaId}-temas`, `asignatura-${asignaturaId}-subtemas`])
   } finally {
     guardando.value = false
   }
