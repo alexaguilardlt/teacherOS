@@ -336,6 +336,7 @@ async function onConfirmarSalto() {
             <UInput
               v-model="fechaASaltar"
               type="date"
+              :min="fechaLocalISO()"
               class="w-full"
             />
           </UFormField>

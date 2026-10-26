@@ -350,6 +350,8 @@ export function useDashboardReparto() {
 
     const sesionesPorFecha = new Map<string, { color: string, grupo: string, asignatura: string }[]>()
     for (const sesion of sesionesDelCurso.value) {
+      // Una clase cancelada no pinta el día como día con clase.
+      if (sesion.estado === 'cancelada') continue
       const detalle = detalleSesion(sesion)
       if (!sesionesPorFecha.has(sesion.fecha)) sesionesPorFecha.set(sesion.fecha, [])
       sesionesPorFecha.get(sesion.fecha)!.push({ color: detalle.color, grupo: detalle.grupo, asignatura: detalle.asignatura })

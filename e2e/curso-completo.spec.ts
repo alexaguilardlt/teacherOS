@@ -244,4 +244,9 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   await page.waitForURL('/dashboard')
   await gotoReady(page, urlReparto)
   await expect(page.locator('tbody tr', { hasText: fechaSaltada })).toContainText('Cancelada')
+
+  // Regenerar el reparto desde cero también respeta el día cancelado.
+  await page.getByRole('button', { name: 'Regenerar reparto' }).click()
+  await expect(page.getByText(/Se han creado \d+ sesiones\./)).toBeVisible()
+  await expect(page.locator('tbody tr', { hasText: fechaSaltada })).toContainText('Cancelada')
 })

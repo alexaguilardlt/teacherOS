@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agruparEnBloques, construirSlots, estaEnFestivo, recolocacionSinCambios, recolocarDesde, repartirBloques, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
+import { agruparEnBloques, construirSlots, estaEnFestivo, recolocacionSinCambios, recolocarDesde, repartirBloques, sesionesAlSaltarUnDia, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
 
 describe('estaEnFestivo', () => {
   it('detecta una fecha dentro del rango, incluyendo los extremos', () => {
@@ -436,5 +436,46 @@ describe('sesiones canceladas', () => {
 
     expect(resultado.sesionesNuevas.map(s => [s.fecha, s.subtemas[0]!.subtemaId])).toEqual([['2026-10-19', 's2']])
     expect(subtemasYaDados(sesiones, [{ sesionId: 'b', subtemaId: 's2' }], '2026-10-19').has('s2')).toBe(false)
+  })
+})
+
+describe('canceladas que se quedan sin hueco', () => {
+  it('se quitan al recolocar si su día ya no tiene clase (franja que cambia de día)', () => {
+    // La franja f1 pasa de lunes a martes: la cancelada del lunes 12 ya no significa nada.
+    const resultado = recolocarDesde({
+      subtemasOrdenados: [{ id: 's1', duracionSesiones: 1 }],
+      sesiones: [{ id: 'cancelada-lunes', franjaId: 'f1', fecha: '2026-10-12', estado: 'cancelada' }],
+      enlaces: [],
+      franjas: [{ franjaId: 'f1', diaSemana: 'martes', horaInicio: '09:00' }],
+      fechaCorte: '2026-10-12',
+      fechaFin: '2026-10-20',
+      festivos: []
+    })
+
+    expect(resultado.sesionesAEliminarIds).toEqual(['cancelada-lunes'])
+    expect(resultado.sesionesNuevas.map(s => s.fecha)).toEqual(['2026-10-13'])
+  })
+})
+
+describe('sesionesAlSaltarUnDia', () => {
+  const sesiones = [
+    { id: 'a', franjaId: 'f1', fecha: '2026-10-12', estado: 'confirmada' },
+    { id: 'b', franjaId: 'f2', fecha: '2026-10-12', estado: 'propuesta' },
+    { id: 'c', franjaId: 'f1', fecha: '2026-10-19', estado: 'cancelada' },
+    { id: 'd', franjaId: 'f1', fecha: '2026-10-26', estado: 'impartida' }
+  ]
+
+  it('cancela todas las clases de ese día', () => {
+    expect(sesionesAlSaltarUnDia(sesiones, '2026-10-12', '2026-10-01')).toEqual({ aCancelar: ['a', 'b'] })
+  })
+
+  it('no deja saltar un día pasado, ya cancelado o ya impartido', () => {
+    expect(sesionesAlSaltarUnDia(sesiones, '2026-10-12', '2026-10-13').motivo).toMatch(/ya ha pasado/)
+    expect(sesionesAlSaltarUnDia(sesiones, '2026-10-19', '2026-10-01').motivo).toMatch(/ya está cancelada/)
+    expect(sesionesAlSaltarUnDia(sesiones, '2026-10-26', '2026-10-01').motivo).toMatch(/ya está impartida/)
+  })
+
+  it('sin clase ese día no hay nada que cancelar', () => {
+    expect(sesionesAlSaltarUnDia(sesiones, '2026-10-13', '2026-10-01')).toEqual({ aCancelar: [] })
   })
 })

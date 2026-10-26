@@ -453,16 +453,19 @@ export function useRedistribucion() {
       { inicio: fecha, fin: fecha }
     ]
 
-    const preview = await previsualizarGrupoAsignatura(ga, curso.fecha_fin, { fechaInicio: fecha, fechaFin: fecha }, festivosRangos)
-    if (!preview) return null
-
     // La clase de ese día no se borra: se cancela, para que quede guardado
     // que ese día no hay clase y ninguna recolocación posterior la vuelva a
     // poner (las canceladas son huecos ocupados para el algoritmo).
     const datos = await cargarSesionesYFranjas(ga.id)
-    const aCancelar = (datos?.sesiones ?? [])
-      .filter(s => s.fecha === fecha && s.estado !== 'impartida' && s.estado !== 'cancelada')
-      .map(s => s.id)
+    const { aCancelar, motivo } = sesionesAlSaltarUnDia(
+      (datos?.sesiones ?? []).map(s => ({ id: s.id, franjaId: s.franja_horaria_id, fecha: s.fecha, estado: s.estado })),
+      fecha,
+      fechaLocalISO()
+    )
+    if (motivo) throw new Error(motivo)
+
+    const preview = await previsualizarGrupoAsignatura(ga, curso.fecha_fin, { fechaInicio: fecha, fechaFin: fecha }, festivosRangos)
+    if (!preview) return null
     preview.sesionesACancelarIds = aCancelar
     preview.sesionesAEliminarIds = preview.sesionesAEliminarIds.filter(id => !aCancelar.includes(id))
     preview.grupoNombre = grupo.nombre
