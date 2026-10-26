@@ -7,7 +7,7 @@ const route = useRoute()
 const grupoId = route.params.id as string
 
 const supabase = useSupabaseClient()
-const { previsualizarCambioHorario, aplicarPreview } = useRedistribucion()
+const { previsualizarCambioHorario, aplicarRecolocaciones } = useRedistribucion()
 
 const { data: grupo } = await useAsyncData(`grupo-${grupoId}`, async () => {
   const { data } = await supabase
@@ -256,8 +256,8 @@ async function guardarGrupo(plan: PlanGuardadoGrupo, previews: PreviewGrupoAsign
       if (error) throw error
     }
 
-    for (const preview of previews) {
-      await aplicarPreview(preview)
+    if (previews.length) {
+      await aplicarRecolocaciones(previews)
     }
 
     if (plan.grupoAsignaturaIdsABorrar.length) {

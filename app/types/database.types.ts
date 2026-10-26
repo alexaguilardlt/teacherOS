@@ -1,3 +1,11 @@
+export type Json
+  = | string
+    | number
+    | boolean
+    | null
+    | { [key: string]: Json | undefined }
+    | Json[]
+
 export type Database = {
   public: {
     Tables: {
@@ -354,7 +362,12 @@ export type Database = {
       }
     }
     Views: Record<string, never>
-    Functions: Record<string, never>
+    Functions: {
+      aplicar_recolocacion: {
+        Args: { recolocaciones: Json, festivo?: Json }
+        Returns: number
+      }
+    }
     Enums: {
       dia_semana: 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
       estado_sesion: 'propuesta' | 'confirmada' | 'cancelada' | 'impartida'

@@ -95,9 +95,7 @@ async function onGenerar() {
   errorMessage.value = ''
   mensaje.value = ''
   try {
-    if (sesiones.value?.length) {
-      await eliminarTodas(grupoAsignaturaId)
-    }
+    // Si ya había reparto, generar lo sustituye en la misma transacción.
     const resultado = await generar(grupoAsignaturaId)
     await recargarSesiones()
     mensaje.value = `Se han creado ${resultado.sesionesCreadas} sesiones.`
