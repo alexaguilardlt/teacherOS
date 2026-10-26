@@ -332,7 +332,7 @@ export function useRedistribucion() {
     festivo?: { cursoId: string, nombre: string, fechaInicio: string, fechaFin: string }
   ) {
     const { error } = await supabase.rpc('aplicar_recolocacion', {
-      recolocaciones: previews.map(p => aRecolocacionJson(p.sesionesAEliminarIds, p.sesionesNuevas, 'confirmada')),
+      recolocaciones: recolocacionesConfirmadas(previews),
       festivo: festivo
         ? { curso_id: festivo.cursoId, nombre: festivo.nombre, fecha_inicio: festivo.fechaInicio, fecha_fin: festivo.fechaFin }
         : undefined

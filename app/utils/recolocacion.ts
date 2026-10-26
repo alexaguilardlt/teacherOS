@@ -14,6 +14,14 @@ export type RecolocacionJson = {
   }[]
 }
 
+// Las recolocaciones que el profesor ya ha revisado en una vista previa se
+// guardan directamente como confirmadas.
+export function recolocacionesConfirmadas(
+  previews: { sesionesAEliminarIds: string[], sesionesNuevas: SesionRecolocada[] }[]
+): RecolocacionJson[] {
+  return previews.map(p => aRecolocacionJson(p.sesionesAEliminarIds, p.sesionesNuevas, 'confirmada'))
+}
+
 // Lo que recibe la función de Postgres aplicar_recolocacion (migración 014)
 // por cada asignatura-grupo: qué sesiones quitar y cuáles crear, ya con sus
 // subtemas, para guardarlo todo en una sola transacción.
