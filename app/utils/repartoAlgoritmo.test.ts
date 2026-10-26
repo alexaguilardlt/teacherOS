@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agruparEnBloques, construirSlots, estaEnFestivo, prepararRecuperarClase, recolocacionSinCambios, recolocarDesde, repartirBloques, sesionesAlSaltarUnDia, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
+import { agruparEnBloques, construirSlots, estaEnFestivo, motivoNoSeRecupera, prepararRecuperarClase, recolocacionSinCambios, recolocarDesde, repartirBloques, sesionesAlSaltarUnDia, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
 
 describe('estaEnFestivo', () => {
   it('detecta una fecha dentro del rango, incluyendo los extremos', () => {
@@ -514,6 +514,35 @@ describe('prepararRecuperarClase', () => {
       ['2026-10-12', 's2'],
       ['2026-10-19', 's3']
     ])
+  })
+
+  it('si el día ya no es lectivo (festivo añadido después), no se recupera', () => {
+    const preparado = prepararRecuperarClase(sesiones, 'b', '2026-10-10')
+    if ('motivo' in preparado) throw new Error(preparado.motivo)
+
+    const resultado = recolocarDesde({
+      subtemasOrdenados: [{ id: 's1', duracionSesiones: 1 }, { id: 's2', duracionSesiones: 1 }, { id: 's3', duracionSesiones: 1 }],
+      sesiones: preparado.sesiones,
+      enlaces,
+      franjas,
+      fechaCorte: preparado.fechaCorte,
+      fechaFin: '2026-10-26',
+      festivos: [{ inicio: '2026-10-12', fin: '2026-10-12' }]
+    })
+
+    expect(motivoNoSeRecupera(resultado, '2026-10-12')).toMatch(/no recibiría clase/)
+  })
+
+  it('recupera todas las clases canceladas de ese día y deja las de otros días', () => {
+    const conDosFranjas = [
+      ...sesiones,
+      { id: 'b2', franjaId: 'f2', fecha: '2026-10-12', estado: 'cancelada' },
+      { id: 'e', franjaId: 'f1', fecha: '2026-11-02', estado: 'cancelada' }
+    ]
+    const preparado = prepararRecuperarClase(conDosFranjas, 'b', '2026-10-10')
+    if ('motivo' in preparado) throw new Error(preparado.motivo)
+
+    expect(preparado.sesiones.filter(s => s.estado === 'cancelada').map(s => s.id)).toEqual(['e'])
   })
 
   it('no recupera una clase que no está cancelada ni una de un día pasado', () => {

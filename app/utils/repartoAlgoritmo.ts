@@ -326,10 +326,11 @@ export function sesionesAlSaltarUnDia(
   return { aCancelar }
 }
 
-// Prepara la recolocación para recuperar una clase saltada (cancelada): esa
-// sesión vuelve a contar como un día con clase normal, y se recoloca desde
-// su fecha (ese día recibe contenido y lo de detrás se reajusta). Lo pasado
-// es historia: no se recupera una clase de un día anterior a hoy.
+// Prepara la recolocación para recuperar una clase saltada (cancelada): las
+// clases canceladas de ese día (saltar cancela todas las del día) vuelven a
+// contar como clases normales, y se recoloca desde su fecha (ese día recibe
+// contenido y lo de detrás se reajusta). Lo pasado es historia: no se
+// recupera una clase de un día anterior a hoy.
 export function prepararRecuperarClase(
   sesiones: SesionExistente[],
   sesionId: string,
@@ -340,7 +341,16 @@ export function prepararRecuperarClase(
   if (sesion.fecha < hoy) return { motivo: 'No se puede recuperar una clase de un día que ya ha pasado.' }
 
   return {
-    sesiones: sesiones.map(s => (s.id === sesionId ? { ...s, estado: 'confirmada' } : s)),
+    sesiones: sesiones.map(s => (s.estado === 'cancelada' && s.fecha === sesion.fecha ? { ...s, estado: 'confirmada' } : s)),
     fechaCorte: sesion.fecha
   }
+}
+
+// Recuperar solo tiene sentido si ese día recibe de verdad una clase. Si no
+// (ahora es festivo, queda fuera del horario o del curso, o ya no queda
+// temario por dar), se explica en vez de quitar la clase cancelada sin poner
+// nada en su lugar.
+export function motivoNoSeRecupera(resultado: ResultadoRecolocacion, fecha: string): string | undefined {
+  if (resultado.sesionesNuevas.some(s => s.fecha === fecha)) return undefined
+  return 'Ese día no recibiría clase: es festivo, queda fuera del horario de la asignatura o ya no queda temario por dar.'
 }

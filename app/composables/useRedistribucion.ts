@@ -527,6 +527,12 @@ export function useRedistribucion() {
       }
     )
 
+    const motivo = motivoNoSeRecupera(
+      { sesionesAEliminarIds: preview.sesionesAEliminarIds, sesionesNuevas: preview.sesionesNuevas, subtemasNoAsignadosIds: [] },
+      preparado.fechaCorte
+    )
+    if (motivo) throw new Error(motivo)
+
     const { data: asignatura } = await supabase
       .from('asignaturas')
       .select('nombre')
