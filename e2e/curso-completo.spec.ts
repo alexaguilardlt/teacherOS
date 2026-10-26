@@ -24,7 +24,7 @@ test.afterEach(async () => {
 test('crear un curso con horario reducido+normal, generar reparto y verlo en el dashboard', async ({ page }) => {
   // Recorre el asistente entero, genera el reparto y edita el temario: no
   // cabe en los 30 s por defecto.
-  test.setTimeout(120_000)
+  test.setTimeout(180_000)
   await login(page)
 
   await gotoReady(page, '/curso/nuevo')
@@ -153,6 +153,34 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   await page.getByRole('button', { name: 'Guardar y recolocar' }).click()
   await page.waitForURL('/dashboard')
 
+  await gotoReady(page, urlReparto)
+  await expect(page.getByText('Porcentajes').first()).toBeVisible()
+
+  // Editar el grupo (solo el color) no puede borrar sus sesiones.
+  await gotoReady(page, '/dashboard')
+  await page.getByRole('link', { name: nombreGrupo, exact: true }).click()
+  await page.waitForURL(/\/grupos\//)
+  const urlGrupo = page.url()
+  await page.locator('input[type="color"]').fill('#ff0000')
+  await page.getByRole('button', { name: 'Guardar cambios' }).click()
+  await page.waitForURL('/dashboard')
+  await gotoReady(page, urlReparto)
+  await expect(page.getByText('Porcentajes').first()).toBeVisible()
+
+  // La franja del sábado ya tiene clases dadas (septiembre de 2026): no se
+  // puede quitar. Añadir otra franja enseña cómo quedará el reparto.
+  await gotoReady(page, urlGrupo)
+  await expect(page.getByRole('button', { name: /^Ya hay clases dadas en esta franja/ }).first()).toBeDisabled()
+  await page.getByRole('button', { name: 'Añadir franja horaria' }).click()
+  await page.getByLabel('Día').last().click()
+  await page.getByRole('option', { name: 'Sábado' }).click()
+  await page.getByLabel('Franja horaria', { exact: true }).last().click()
+  // Aquí las horas vienen de la base de datos, con segundos (07:00:00).
+  await page.getByRole('option', { name: /^Normal: 07:00/ }).click()
+  await page.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByText('El horario de este grupo ha cambiado.')).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar y recolocar' }).click()
+  await page.waitForURL('/dashboard')
   await gotoReady(page, urlReparto)
   await expect(page.getByText('Porcentajes').first()).toBeVisible()
 })

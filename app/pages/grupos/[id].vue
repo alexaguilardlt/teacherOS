@@ -1,8 +1,13 @@
 <script setup lang="ts">
+import type { PreviewGrupoAsignatura } from '~/composables/useRedistribucion'
+import { fechaLocalISO } from '~/utils/fechas'
+import { planificarGuardadoGrupo, type PlanGuardadoGrupo } from '~/utils/grupo'
+
 const route = useRoute()
 const grupoId = route.params.id as string
 
 const supabase = useSupabaseClient()
+const { previsualizarCambioHorario, aplicarPreview } = useRedistribucion()
 
 const { data: grupo } = await useAsyncData(`grupo-${grupoId}`, async () => {
   const { data } = await supabase
@@ -70,9 +75,8 @@ const { data: grupoAsignaturasIniciales } = await useAsyncData(`grupo-${grupoId}
   return data ?? []
 })
 
-const gaIds = (grupoAsignaturasIniciales.value ?? []).map(ga => ga.id)
-
 const { data: franjasIniciales } = await useAsyncData(`grupo-${grupoId}-franjas`, async () => {
+  const gaIds = (grupoAsignaturasIniciales.value ?? []).map(ga => ga.id)
   if (!gaIds.length) return []
   const { data } = await supabase
     .from('franjas_horarias')
@@ -80,6 +84,37 @@ const { data: franjasIniciales } = await useAsyncData(`grupo-${grupoId}-franjas`
     .in('grupo_asignatura_id', gaIds)
   return data ?? []
 })
+
+const { data: sesionesIniciales } = await useAsyncData(`grupo-${grupoId}-sesiones`, async () => {
+  const franjaIds = (franjasIniciales.value ?? []).map(f => f.id)
+  if (!franjaIds.length) return []
+  const { data } = await supabase
+    .from('sesiones')
+    .select('id, franja_horaria_id, fecha, estado')
+    .in('franja_horaria_id', franjaIds)
+  return data ?? []
+})
+
+// Primera clase ya dada (anterior a hoy o impartida) de cada franja. Una
+// franja con clases dadas no se puede quitar ni cambiar de día u hora: se
+// perdería o se falsearía el historial. Para un cambio de horario a mitad
+// de curso están los horarios tipo con vigencias.
+const primeraClaseDadaPorFranjaId = computed(() => {
+  const hoy = fechaLocalISO()
+  const fechas = new Map<string, string>()
+  for (const sesion of sesionesIniciales.value ?? []) {
+    if (sesion.fecha >= hoy && sesion.estado !== 'impartida') continue
+    const anterior = fechas.get(sesion.franja_horaria_id)
+    if (!anterior || sesion.fecha < anterior) fechas.set(sesion.franja_horaria_id, sesion.fecha)
+  }
+  return fechas
+})
+
+function motivoFranjaBloqueada(franjaId: string) {
+  const fecha = primeraClaseDadaPorFranjaId.value.get(franjaId)
+  if (!fecha) return undefined
+  return `Ya hay clases dadas en esta franja (desde el ${fecha.split('-').reverse().join('/')}): no se puede quitar ni cambiar de día u hora.`
+}
 
 const nombre = ref(grupo.value.nombre)
 const color = ref(grupo.value.color)
@@ -89,7 +124,9 @@ const seleccionInicial = (grupoAsignaturasIniciales.value ?? []).map(ga => ({
   franjas: (franjasIniciales.value ?? [])
     .filter(franja => franja.grupo_asignatura_id === ga.id)
     .map(franja => ({
-      clienteId: crypto.randomUUID(),
+      // El id de la base de datos: al guardar se actualiza en vez de
+      // borrarse y recrearse (y sus sesiones no se pierden).
+      clienteId: franja.id,
       diaSemana: franja.dia_semana,
       periodoId: franja.periodo_id,
       propia: franja.propia
@@ -106,10 +143,93 @@ function grupoAsignaturaGuardadaId(asignaturaId: string) {
 const guardando = ref(false)
 const errorMessage = ref('')
 
+// Si el horario de una asignatura ya repartida cambia, antes de guardar se
+// enseña cómo quedarían sus sesiones a partir de hoy, y el horario y el
+// reparto se guardan juntos.
+const planPendiente = ref<PlanGuardadoGrupo | null>(null)
+const previewsRecolocacion = ref<PreviewGrupoAsignatura[]>([])
+const modalRecolocarAbierto = ref(false)
+
 async function guardar() {
   guardando.value = true
   errorMessage.value = ''
 
+  try {
+    const plan = planificarGuardadoGrupo(grupoId, seleccion.value, {
+      grupoAsignaturas: (grupoAsignaturasIniciales.value ?? []).map(ga => ({ ...ga, grupo_id: grupoId })),
+      franjas: franjasIniciales.value ?? []
+    })
+
+    // Quitar una franja con clases dadas solo vale si se quita la asignatura
+    // entera (y eso se confirma aparte).
+    const franjaPorId = new Map((franjasIniciales.value ?? []).map(f => [f.id, f]))
+    const franjaBloqueadaTocada = [
+      ...plan.franjaIdsABorrar.filter(id => !plan.grupoAsignaturaIdsABorrar.includes(franjaPorId.get(id)!.grupo_asignatura_id)),
+      ...plan.franjas
+        .filter(f => franjaPorId.has(f.id))
+        .filter(f => f.dia_semana !== franjaPorId.get(f.id)!.dia_semana || f.periodo_id !== franjaPorId.get(f.id)!.periodo_id)
+        .map(f => f.id)
+    ].find(id => primeraClaseDadaPorFranjaId.value.has(id))
+    if (franjaBloqueadaTocada) {
+      throw new Error('No se puede quitar ni cambiar de día u hora una franja que ya tiene clases dadas.')
+    }
+
+    const asignaturasQuitadasConReparto = plan.grupoAsignaturaIdsABorrar
+      .filter(gaId => (sesionesIniciales.value ?? []).some(s => franjaPorId.get(s.franja_horaria_id)?.grupo_asignatura_id === gaId))
+      .map(gaId => nombreAsignatura((grupoAsignaturasIniciales.value ?? []).find(ga => ga.id === gaId)!.asignatura_id))
+    if (
+      asignaturasQuitadasConReparto.length
+      && !confirm(`Vas a quitar del grupo ${asignaturasQuitadasConReparto.join(', ')}. Se borrará su reparto, también las clases ya dadas. ¿Continuar?`)
+    ) {
+      return
+    }
+
+    const previews = await previsualizarCambioHorario(
+      grupoId,
+      plan.grupoAsignaturaIdsConCambioDeHorario.map(gaId => ({
+        grupoAsignaturaId: gaId,
+        asignaturaId: (grupoAsignaturasIniciales.value ?? []).find(ga => ga.id === gaId)!.asignatura_id,
+        franjas: plan.franjas.filter(f => f.grupo_asignatura_id === gaId)
+      }))
+    )
+    if (previews.length) {
+      planPendiente.value = plan
+      previewsRecolocacion.value = previews
+      modalRecolocarAbierto.value = true
+      return
+    }
+
+    await guardarGrupo(plan, [])
+  } catch (e) {
+    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+  } finally {
+    guardando.value = false
+  }
+}
+
+function nombreAsignatura(asignaturaId: string) {
+  return asignaturas.value?.find(a => a.id === asignaturaId)?.nombre ?? ''
+}
+
+const recolocando = ref(false)
+
+async function confirmarRecolocacion() {
+  if (!planPendiente.value) return
+  recolocando.value = true
+  try {
+    await guardarGrupo(planPendiente.value, previewsRecolocacion.value)
+  } catch (e) {
+    // La vista previa se calculó con las sesiones de antes: si algo se llegó
+    // a aplicar, ya no vale. Hay que volver a pulsar Guardar para recalcularla.
+    modalRecolocarAbierto.value = false
+    planPendiente.value = null
+    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+  } finally {
+    recolocando.value = false
+  }
+}
+
+async function guardarGrupo(plan: PlanGuardadoGrupo, previews: PreviewGrupoAsignatura[]) {
   try {
     const { error: errorGrupo } = await supabase
       .from('grupos')
@@ -117,39 +237,43 @@ async function guardar() {
       .eq('id', grupoId)
     if (errorGrupo) throw errorGrupo
 
-    const { error: errorBorrar } = await supabase
-      .from('grupo_asignaturas')
-      .delete()
-      .eq('grupo_id', grupoId)
-    if (errorBorrar) throw errorBorrar
-
-    for (const s of seleccion.value) {
-      const { data: gaInsertada, error: errorGa } = await supabase
-        .from('grupo_asignaturas')
-        .insert({ grupo_id: grupoId, asignatura_id: s.asignaturaId })
-        .select('id')
-        .single()
-      if (errorGa || !gaInsertada) throw errorGa ?? new Error('grupo_asignatura')
-
-      if (s.franjas.length) {
-        const { error: errorFranjas } = await supabase
-          .from('franjas_horarias')
-          .insert(s.franjas.map(franja => ({
-            grupo_asignatura_id: gaInsertada.id,
-            dia_semana: franja.diaSemana,
-            periodo_id: franja.periodoId,
-            propia: franja.propia
-          })))
-        if (errorFranjas) throw errorFranjas
-      }
+    if (plan.grupoAsignaturasNuevas.length) {
+      const { error } = await supabase.from('grupo_asignaturas').insert(plan.grupoAsignaturasNuevas)
+      if (error) throw error
     }
 
-    await navigateTo('/dashboard')
+    // Las franjas quitadas van antes que las demás para que no choquen con
+    // una nueva en el mismo hueco (aviso de solape). Solo pueden tener
+    // sesiones futuras, y esas se vuelven a crear al recolocar: si algo falla
+    // a mitad, volver a guardar las recalcula.
+    if (plan.franjaIdsABorrar.length) {
+      const { error } = await supabase.from('franjas_horarias').delete().in('id', plan.franjaIdsABorrar)
+      if (error) throw error
+    }
+
+    if (plan.franjas.length) {
+      const { error } = await supabase.from('franjas_horarias').upsert(plan.franjas)
+      if (error) throw error
+    }
+
+    for (const preview of previews) {
+      await aplicarPreview(preview)
+    }
+
+    if (plan.grupoAsignaturaIdsABorrar.length) {
+      const { error } = await supabase.from('grupo_asignaturas').delete().in('id', plan.grupoAsignaturaIdsABorrar)
+      if (error) throw error
+    }
   } catch (e) {
-    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
-  } finally {
-    guardando.value = false
+    // Lo que sí llegó a guardarse pasa a contar como existente al reintentar.
+    // Van en orden: cada una se pide a partir de la anterior.
+    await refreshNuxtData(`grupo-${grupoId}-grupo-asignaturas`)
+    await refreshNuxtData(`grupo-${grupoId}-franjas`)
+    await refreshNuxtData(`grupo-${grupoId}-sesiones`)
+    throw e
   }
+
+  await navigateTo('/dashboard')
 }
 
 const eliminando = ref(false)
@@ -249,6 +373,7 @@ async function eliminarGrupo() {
                 v-model="franja.diaSemana"
                 :items="OPCIONES_DIA"
                 value-key="value"
+                :disabled="Boolean(motivoFranjaBloqueada(franja.clienteId))"
                 class="w-full"
               />
             </UFormField>
@@ -258,6 +383,7 @@ async function eliminarGrupo() {
                 v-model="franja.periodoId"
                 :items="opcionesPeriodo"
                 value-key="value"
+                :disabled="Boolean(motivoFranjaBloqueada(franja.clienteId))"
                 class="w-full"
               />
             </UFormField>
@@ -268,13 +394,19 @@ async function eliminarGrupo() {
               class="pb-2"
             />
 
-            <UButton
-              icon="i-lucide-trash-2"
-              color="neutral"
-              variant="ghost"
-              aria-label="Eliminar franja horaria"
-              @click="eliminarFranja(asignatura.id, franja.clienteId)"
-            />
+            <UTooltip
+              :text="motivoFranjaBloqueada(franja.clienteId)"
+              :disabled="!motivoFranjaBloqueada(franja.clienteId)"
+            >
+              <UButton
+                :icon="motivoFranjaBloqueada(franja.clienteId) ? 'i-lucide-lock' : 'i-lucide-trash-2'"
+                color="neutral"
+                variant="ghost"
+                :disabled="Boolean(motivoFranjaBloqueada(franja.clienteId))"
+                :aria-label="motivoFranjaBloqueada(franja.clienteId) ?? 'Eliminar franja horaria'"
+                @click="eliminarFranja(asignatura.id, franja.clienteId)"
+              />
+            </UTooltip>
           </div>
 
           <UButton
@@ -337,5 +469,38 @@ async function eliminarGrupo() {
         </UButton>
       </div>
     </div>
+
+    <UModal
+      v-model:open="modalRecolocarAbierto"
+      title="Recolocar el reparto"
+      :dismissible="!recolocando"
+    >
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <p class="text-sm text-muted">
+            El horario de este grupo ha cambiado. Con el horario nuevo, las sesiones quedarán así a partir de hoy.
+            Las sesiones anteriores y las ya impartidas no se tocan.
+          </p>
+          <ResumenRedistribucion :previews="previewsRecolocacion" />
+        </div>
+      </template>
+
+      <template #footer>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          :disabled="recolocando"
+          @click="modalRecolocarAbierto = false"
+        >
+          Seguir editando
+        </UButton>
+        <UButton
+          :loading="recolocando"
+          @click="confirmarRecolocacion"
+        >
+          Guardar y recolocar
+        </UButton>
+      </template>
+    </UModal>
   </UContainer>
 </template>

@@ -1,4 +1,5 @@
 import type { RangoFecha, SesionRecolocada } from '~/utils/repartoAlgoritmo'
+import type { DiaSemana } from '~/stores/cursoWizard.types'
 
 export type SesionPropuesta = SesionRecolocada
 
@@ -121,7 +122,12 @@ export function useRedistribucion() {
   // todavía no se ha guardado; si no se pasa, se usa el de la base de datos.
   async function calcularRecolocacion(
     ga: { id: string, asignatura_id: string },
-    datos: NonNullable<Awaited<ReturnType<typeof cargarSesionesYFranjas>>>,
+    // Las franjas son las que marcan los huecos a partir del corte (pueden ser
+    // las de un horario aún sin guardar); las sesiones, las que hay ahora.
+    datos: {
+      franjas: { id: string, dia_semana: DiaSemana, periodo_id: string }[]
+      sesiones: { id: string, fecha: string, estado: string, franja_horaria_id: string }[]
+    },
     opciones: { fechaCorte: string, fechaFin: string, festivos: RangoFecha[], subtemas?: SubtemaParaRecolocar[] }
   ): Promise<PreviewGrupoAsignatura> {
     const { franjas, sesiones } = datos
@@ -258,6 +264,65 @@ export function useRedistribucion() {
     return previews
   }
 
+  // Cómo quedaría el reparto de las asignaturas de un grupo cuyo horario
+  // cambia (franjas añadidas, quitadas o movidas, aún sin guardar). Se
+  // recoloca desde hoy con las franjas nuevas; lo anterior y lo ya impartido
+  // no se toca. Solo devuelve las asignaturas que ya tienen sesiones.
+  async function previsualizarCambioHorario(
+    grupoId: string,
+    cambios: { grupoAsignaturaId: string, asignaturaId: string, franjas: { id: string, dia_semana: DiaSemana, periodo_id: string }[] }[]
+  ): Promise<PreviewGrupoAsignatura[]> {
+    if (!cambios.length) return []
+
+    const { data: grupo } = await supabase
+      .from('grupos')
+      .select('nombre, curso_id')
+      .eq('id', grupoId)
+      .single()
+    if (!grupo) throw new Error('No se ha encontrado el grupo.')
+
+    const { data: curso } = await supabase
+      .from('cursos')
+      .select('fecha_inicio, fecha_fin')
+      .eq('id', grupo.curso_id)
+      .single()
+    if (!curso) throw new Error('No se ha encontrado el curso.')
+
+    const hoy = fechaLocalISO()
+    // Un curso ya terminado no tiene nada que recolocar.
+    if (hoy > curso.fecha_fin) return []
+
+    const { data: festivos } = await supabase
+      .from('dias_no_lectivos')
+      .select('fecha_inicio, fecha_fin')
+      .eq('curso_id', grupo.curso_id)
+
+    const { data: asignaturas } = await supabase
+      .from('asignaturas')
+      .select('id, nombre')
+      .in('id', cambios.map(c => c.asignaturaId))
+
+    const previews: PreviewGrupoAsignatura[] = []
+    for (const cambio of cambios) {
+      const actuales = await cargarSesionesYFranjas(cambio.grupoAsignaturaId)
+      if (!actuales) continue
+
+      const preview = await calcularRecolocacion(
+        { id: cambio.grupoAsignaturaId, asignatura_id: cambio.asignaturaId },
+        { franjas: cambio.franjas, sesiones: actuales.sesiones },
+        {
+          fechaCorte: hoy > curso.fecha_inicio ? hoy : curso.fecha_inicio,
+          fechaFin: curso.fecha_fin,
+          festivos: (festivos ?? []).map(f => ({ inicio: f.fecha_inicio, fin: f.fecha_fin }))
+        }
+      )
+      preview.grupoNombre = grupo.nombre
+      preview.asignaturaNombre = asignaturas?.find(a => a.id === cambio.asignaturaId)?.nombre ?? ''
+      previews.push(preview)
+    }
+    return previews
+  }
+
   // Aplica un preview ya calculado: borra las sesiones futuras afectadas y
   // crea las nuevas ya "confirmada" (el profesor ya ha revisado el preview,
   // no hace falta un paso de confirmación aparte para estas).
@@ -364,5 +429,5 @@ export function useRedistribucion() {
     await aplicarPreview(preview)
   }
 
-  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura, previsualizarCambioTemario, aplicarPreview }
+  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura, previsualizarCambioTemario, previsualizarCambioHorario, aplicarPreview }
 }
