@@ -367,6 +367,18 @@ export type Database = {
         Args: { recolocaciones: Json, festivo?: Json }
         Returns: number
       }
+      guardar_temario: {
+        Args: {
+          p_asignatura_id: string
+          p_nombre: string
+          p_temas: Json
+          p_subtemas: Json
+          p_tema_ids_a_borrar: string[]
+          p_subtema_ids_a_borrar: string[]
+          p_recolocaciones?: Json
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       dia_semana: 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'

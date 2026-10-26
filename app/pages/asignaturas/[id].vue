@@ -10,7 +10,7 @@ const route = useRoute()
 const asignaturaId = route.params.id as string
 
 const supabase = useSupabaseClient()
-const { previsualizarCambioTemario, aplicarRecolocaciones } = useRedistribucion()
+const { previsualizarCambioTemario } = useRedistribucion()
 
 const etiquetaTipoSuelto: Record<TipoElementoSuelto, string> = {
   repaso: 'Repaso',
@@ -203,6 +203,7 @@ async function guardar() {
       if (previews.length) {
         planPendiente.value = plan
         previewsRecolocacion.value = previews
+        errorRecolocacion.value = ''
         modalRecolocarAbierto.value = true
         return
       }
@@ -217,66 +218,43 @@ async function guardar() {
 }
 
 const recolocando = ref(false)
+const errorRecolocacion = ref('')
 
 async function confirmarRecolocacion() {
   if (!planPendiente.value) return
   recolocando.value = true
+  errorRecolocacion.value = ''
   try {
     await guardarTemario(planPendiente.value, previewsRecolocacion.value)
   } catch (e) {
-    // La vista previa se calculó con las sesiones de antes: si algo se llegó
-    // a aplicar, ya no vale. Hay que volver a pulsar Guardar para recalcularla.
-    modalRecolocarAbierto.value = false
-    planPendiente.value = null
-    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+    // Si falla no se ha guardado nada: la vista previa sigue valiendo y se
+    // puede reintentar desde aquí mismo.
+    errorRecolocacion.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
   } finally {
     recolocando.value = false
   }
 }
 
+// Todo en una transacción (función de Postgres guardar_temario, migración
+// 015): o se guardan el temario y su reparto recolocado, o nada.
 async function guardarTemario(plan: PlanGuardadoTemario, previews: PreviewGrupoAsignatura[]) {
-  try {
-    const { error: errorAsignatura } = await supabase
-      .from('asignaturas')
-      .update({ nombre: nombre.value })
-      .eq('id', asignaturaId)
-    if (errorAsignatura) throw errorAsignatura
-
-    // Primero se guarda todo lo que queda, luego se recoloca el reparto (las
-    // sesiones nuevas ya pueden apuntar a los subtemas nuevos) y al final se
-    // borra lo quitado: si algo falla a mitad, como mucho se queda sin
-    // aplicar parte de la edición, pero no se pierde nada de lo que había.
-    if (plan.temas.length) {
-      const { error: errorTemas } = await supabase.from('temas').upsert(plan.temas)
-      if (errorTemas) throw errorTemas
-    }
-
-    if (plan.subtemas.length) {
-      const { error: errorSubtemas } = await supabase.from('subtemas').upsert(plan.subtemas)
-      if (errorSubtemas) throw errorSubtemas
-    }
-
-    if (previews.length) {
-      await aplicarRecolocaciones(previews)
-    }
-
-    if (plan.subtemaIdsABorrar.length) {
-      const { error: errorBorrarSubtemas } = await supabase.from('subtemas').delete().in('id', plan.subtemaIdsABorrar)
-      if (errorBorrarSubtemas) throw errorBorrarSubtemas
-    }
-
-    if (plan.temaIdsABorrar.length) {
-      const { error: errorBorrarTemas } = await supabase.from('temas').delete().in('id', plan.temaIdsABorrar)
-      if (errorBorrarTemas) throw errorBorrarTemas
-    }
-  } catch (e) {
-    // Lo que sí llegó a guardarse pasa a contar como existente: si se
-    // vuelve a intentar, se borra lo que sobre en vez de duplicarse.
-    // Las sesiones se piden a partir de los subtemas: van después.
-    await refreshNuxtData([`asignatura-${asignaturaId}-temas`, `asignatura-${asignaturaId}-subtemas`])
-    await refreshNuxtData(`asignatura-${asignaturaId}-sesiones`)
-    throw e
-  }
+  const { error } = await supabase.rpc('guardar_temario', {
+    p_asignatura_id: asignaturaId,
+    p_nombre: nombre.value,
+    p_temas: plan.temas.map(t => ({ id: t.id, nombre: t.nombre, orden: t.orden })),
+    p_subtemas: plan.subtemas.map(s => ({
+      id: s.id,
+      tema_id: s.tema_id,
+      nombre: s.nombre,
+      tipo: s.tipo,
+      duracion_sesiones: s.duracion_sesiones,
+      orden: s.orden
+    })),
+    p_tema_ids_a_borrar: plan.temaIdsABorrar,
+    p_subtema_ids_a_borrar: plan.subtemaIdsABorrar,
+    p_recolocaciones: recolocacionesConfirmadas(previews)
+  })
+  if (error) throw error
 
   await navigateTo('/dashboard')
 }
@@ -582,6 +560,12 @@ async function eliminarAsignatura() {
             Las sesiones anteriores y las ya impartidas no se tocan.
           </p>
           <ResumenRedistribucion :previews="previewsRecolocacion" />
+          <UAlert
+            v-if="errorRecolocacion"
+            color="error"
+            variant="subtle"
+            :title="errorRecolocacion"
+          />
         </div>
       </template>
 
