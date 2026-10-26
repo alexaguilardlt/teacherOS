@@ -286,7 +286,8 @@ export function useDashboardReparto() {
   }
 
   async function alternarImpartida(sesionId: string, estadoActual: string) {
-    if (!esSesionPropia(sesionId)) return
+    // Una clase cancelada no se da: no hay nada que marcar.
+    if (!esSesionPropia(sesionId) || estadoActual === 'cancelada') return
     const nuevoEstado = estadoActual === 'impartida' ? 'confirmada' : 'impartida'
     actualizandoEstadoId.value = sesionId
     const { error } = await supabase.from('sesiones').update({ estado: nuevoEstado }).eq('id', sesionId)

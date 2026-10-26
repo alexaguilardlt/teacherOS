@@ -103,6 +103,8 @@ const primeraClaseDadaPorFranjaId = computed(() => {
   const hoy = fechaLocalISO()
   const fechas = new Map<string, string>()
   for (const sesion of sesionesIniciales.value ?? []) {
+    // Una clase cancelada no es una clase dada.
+    if (sesion.estado === 'cancelada') continue
     if (sesion.fecha >= hoy && sesion.estado !== 'impartida') continue
     const anterior = fechas.get(sesion.franja_horaria_id)
     if (!anterior || sesion.fecha < anterior) fechas.set(sesion.franja_horaria_id, sesion.fecha)

@@ -395,3 +395,46 @@ describe('recolocacionSinCambios', () => {
     expect(recolocacionSinCambios(resultado, sesiones, enlaces)).toBe(false)
   })
 })
+
+describe('sesiones canceladas', () => {
+  // Lunes de octubre de 2026: 5, 12, 19 y 26. El 12 se saltó (cancelada).
+  const franjas = [{ franjaId: 'f1', diaSemana: 'lunes' as const, horaInicio: '09:00' }]
+  const sesiones = [
+    { id: 'a', franjaId: 'f1', fecha: '2026-10-05', estado: 'confirmada' },
+    { id: 'b', franjaId: 'f1', fecha: '2026-10-12', estado: 'cancelada' },
+    { id: 'c', franjaId: 'f1', fecha: '2026-10-19', estado: 'confirmada' }
+  ]
+
+  it('al recolocar, un día cancelado se queda como está y no vuelve a tener clase', () => {
+    const resultado = recolocarDesde({
+      subtemasOrdenados: [{ id: 's1', duracionSesiones: 1 }, { id: 's2', duracionSesiones: 1 }, { id: 's3', duracionSesiones: 1 }],
+      sesiones,
+      enlaces: [{ sesionId: 'a', subtemaId: 's1' }, { sesionId: 'c', subtemaId: 's2' }],
+      franjas,
+      fechaCorte: '2026-10-12',
+      fechaFin: '2026-11-02',
+      festivos: []
+    })
+
+    expect(resultado.sesionesAEliminarIds).toEqual(['c'])
+    expect(resultado.sesionesNuevas.map(s => [s.fecha, s.subtemas[0]!.subtemaId])).toEqual([
+      ['2026-10-19', 's2'],
+      ['2026-10-26', 's3']
+    ])
+  })
+
+  it('lo que tuviera enlazado una sesión cancelada no cuenta como dado', () => {
+    const resultado = recolocarDesde({
+      subtemasOrdenados: [{ id: 's1', duracionSesiones: 1 }, { id: 's2', duracionSesiones: 1 }],
+      sesiones,
+      enlaces: [{ sesionId: 'a', subtemaId: 's1' }, { sesionId: 'b', subtemaId: 's2' }],
+      franjas,
+      fechaCorte: '2026-10-19',
+      fechaFin: '2026-10-26',
+      festivos: []
+    })
+
+    expect(resultado.sesionesNuevas.map(s => [s.fecha, s.subtemas[0]!.subtemaId])).toEqual([['2026-10-19', 's2']])
+    expect(subtemasYaDados(sesiones, [{ sesionId: 'b', subtemaId: 's2' }], '2026-10-19').has('s2')).toBe(false)
+  })
+})

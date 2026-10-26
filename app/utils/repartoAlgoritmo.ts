@@ -168,9 +168,16 @@ export interface ResultadoRecolocacion {
 }
 
 // Una sesión ya no se toca si es anterior al corte o si ya se impartió:
-// es historia. Todo lo demás se puede recolocar.
+// es historia. Tampoco si se canceló (una clase saltada): así su día sigue
+// ocupado y ninguna recolocación vuelve a poner clase ahí. Todo lo demás se
+// puede recolocar.
 function esSesionFija(sesion: SesionExistente, fechaCorte: string) {
-  return sesion.fecha < fechaCorte || sesion.estado === 'impartida'
+  return sesion.fecha < fechaCorte || sesion.estado === 'impartida' || sesion.estado === 'cancelada'
+}
+
+// Lo que cuenta como dado: lo de las sesiones fijas que no se cancelaron.
+function sesionDaContenido(sesion: SesionExistente, fechaCorte: string) {
+  return esSesionFija(sesion, fechaCorte) && sesion.estado !== 'cancelada'
 }
 
 // Recalcula el reparto de una asignatura-grupo a partir de `fechaCorte`: las
@@ -195,9 +202,10 @@ export function recolocarDesde(params: {
   const { subtemasOrdenados, sesiones, enlaces, franjas, fechaCorte, fechaFin, festivos } = params
 
   const sesionesFijasIds = new Set(sesiones.filter(s => esSesionFija(s, fechaCorte)).map(s => s.id))
+  const sesionesDadasIds = new Set(sesiones.filter(s => sesionDaContenido(s, fechaCorte)).map(s => s.id))
   const sesionesFijasPorSubtema = new Map<string, Set<string>>()
   for (const enlace of enlaces) {
-    if (!sesionesFijasIds.has(enlace.sesionId)) continue
+    if (!sesionesDadasIds.has(enlace.sesionId)) continue
     const ids = sesionesFijasPorSubtema.get(enlace.subtemaId) ?? new Set<string>()
     ids.add(enlace.sesionId)
     sesionesFijasPorSubtema.set(enlace.subtemaId, ids)
@@ -244,7 +252,7 @@ export function subtemasYaDados(
   hoy: string
 ): Map<string, string> {
   const fechaPorSesionFija = new Map(
-    sesiones.filter(s => esSesionFija(s, hoy)).map(s => [s.id, s.fecha])
+    sesiones.filter(s => sesionDaContenido(s, hoy)).map(s => [s.id, s.fecha])
   )
   const dados = new Map<string, string>()
   for (const enlace of enlaces) {
