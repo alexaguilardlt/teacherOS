@@ -262,3 +262,23 @@ export function temarioAfectaAlReparto(antes: SubtemaParaBloques[], despues: Sub
   if (antes.length !== despues.length) return true
   return antes.some((s, i) => s.id !== despues[i]!.id || s.duracionSesiones !== despues[i]!.duracionSesiones)
 }
+
+// Una recolocación no cambia nada si crea exactamente las mismas sesiones
+// (franja, fecha y subtemas) que quita: no hace falta enseñarla ni
+// aplicarla (y así no se pierden estados ni notas de esas sesiones).
+export function recolocacionSinCambios(
+  resultado: ResultadoRecolocacion,
+  sesiones: SesionExistente[],
+  enlaces: EnlaceSesionSubtema[]
+): boolean {
+  const clave = (franjaId: string, fecha: string, subtemaIds: string[]) => `${franjaId}|${fecha}|${[...subtemaIds].sort().join(',')}`
+  const quitadas = new Set(resultado.sesionesAEliminarIds)
+  const antes = sesiones
+    .filter(s => quitadas.has(s.id))
+    .map(s => clave(s.franjaId, s.fecha, enlaces.filter(e => e.sesionId === s.id).map(e => e.subtemaId)))
+    .sort()
+  const despues = resultado.sesionesNuevas
+    .map(s => clave(s.franjaId, s.fecha, s.subtemas.map(x => x.subtemaId)))
+    .sort()
+  return antes.length === despues.length && antes.every((c, i) => c === despues[i])
+}

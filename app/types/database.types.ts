@@ -371,6 +371,23 @@ export type Database = {
         Args: { p_datos: Json }
         Returns: string
       }
+      guardar_curso: {
+        Args: {
+          p_curso_id: string
+          p_nombre: string
+          p_fecha_inicio: string
+          p_fecha_fin: string
+          p_festivos: Json
+          p_horarios_tipo: Json
+          p_vigencias: Json
+          p_periodos: Json
+          p_horario_tipo_ids_a_borrar: string[]
+          p_vigencia_ids_a_borrar: string[]
+          p_periodo_ids_a_borrar: string[]
+          p_recolocaciones?: Json
+        }
+        Returns: undefined
+      }
       guardar_grupo: {
         Args: {
           p_grupo_id: string

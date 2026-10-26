@@ -16,6 +16,8 @@ export interface PreviewGrupoAsignatura {
   sesionesAEliminarIds: string[]
   sesionesNuevas: SesionPropuesta[]
   subtemasNoAsignados: string[]
+  // Crea exactamente las mismas sesiones que quita: no hace falta aplicarla.
+  sinCambios: boolean
 }
 
 export function useRedistribucion() {
@@ -128,7 +130,15 @@ export function useRedistribucion() {
       franjas: { id: string, dia_semana: DiaSemana, periodo_id: string }[]
       sesiones: { id: string, fecha: string, estado: string, franja_horaria_id: string }[]
     },
-    opciones: { fechaCorte: string, fechaFin: string, festivos: RangoFecha[], subtemas?: SubtemaParaRecolocar[] }
+    opciones: {
+      fechaCorte: string
+      fechaFin: string
+      festivos: RangoFecha[]
+      subtemas?: SubtemaParaRecolocar[]
+      // Tramos de vigencia de cada horario tipo aún sin guardar; si no se
+      // pasan, se usan los de la base de datos.
+      vigencias?: Map<string, RangoFecha[]>
+    }
   ): Promise<PreviewGrupoAsignatura> {
     const { franjas, sesiones } = datos
 
@@ -144,16 +154,14 @@ export function useRedistribucion() {
       .in('id', periodoIds)
     const periodoPorId = new Map((periodos ?? []).map(p => [p.id, p]))
 
-    const horarioTipoIds = [...new Set((periodos ?? []).map(p => p.horario_tipo_id))]
-    const { data: vigencias } = await supabase
-      .from('horario_tipo_vigencias')
-      .select('horario_tipo_id, fecha_inicio, fecha_fin')
-      .in('horario_tipo_id', horarioTipoIds)
-    const vigenciasPorHorarioTipoId = new Map<string, RangoFecha[]>()
-    for (const v of vigencias ?? []) {
-      const lista = vigenciasPorHorarioTipoId.get(v.horario_tipo_id) ?? []
-      lista.push({ inicio: v.fecha_inicio, fin: v.fecha_fin })
-      vigenciasPorHorarioTipoId.set(v.horario_tipo_id, lista)
+    let vigenciasPorHorarioTipoId = opciones.vigencias
+    if (!vigenciasPorHorarioTipoId) {
+      const horarioTipoIds = [...new Set((periodos ?? []).map(p => p.horario_tipo_id))]
+      const { data: vigencias } = await supabase
+        .from('horario_tipo_vigencias')
+        .select('horario_tipo_id, fecha_inicio, fecha_fin')
+        .in('horario_tipo_id', horarioTipoIds)
+      vigenciasPorHorarioTipoId = vigenciasPorHorarioTipo(vigencias ?? [])
     }
 
     let subtemas = opciones.subtemas
@@ -174,15 +182,17 @@ export function useRedistribucion() {
           franjaId: franja.id,
           diaSemana: franja.dia_semana,
           horaInicio: periodo.hora_inicio,
-          vigencias: vigenciasPorHorarioTipoId.get(periodo.horario_tipo_id)
+          vigencias: vigenciasPorHorarioTipoId!.get(periodo.horario_tipo_id)
         }
       })
       .filter((f): f is NonNullable<typeof f> => f !== null)
 
+    const sesionesExistentes = sesiones.map(s => ({ id: s.id, franjaId: s.franja_horaria_id, fecha: s.fecha, estado: s.estado }))
+    const enlaces = (sesionSubtemas ?? []).map(ss => ({ sesionId: ss.sesion_id, subtemaId: ss.subtema_id }))
     const resultado = recolocarDesde({
       subtemasOrdenados: subtemas,
-      sesiones: sesiones.map(s => ({ id: s.id, franjaId: s.franja_horaria_id, fecha: s.fecha, estado: s.estado })),
-      enlaces: (sesionSubtemas ?? []).map(ss => ({ sesionId: ss.sesion_id, subtemaId: ss.subtema_id })),
+      sesiones: sesionesExistentes,
+      enlaces,
       franjas: franjasParaSlots,
       fechaCorte: opciones.fechaCorte,
       fechaFin: opciones.fechaFin,
@@ -197,7 +207,8 @@ export function useRedistribucion() {
       asignaturaNombre: '',
       sesionesAEliminarIds: resultado.sesionesAEliminarIds,
       sesionesNuevas: resultado.sesionesNuevas,
-      subtemasNoAsignados: resultado.subtemasNoAsignadosIds.map(id => nombrePorId.get(id) ?? id)
+      subtemasNoAsignados: resultado.subtemasNoAsignadosIds.map(id => nombrePorId.get(id) ?? id),
+      sinCambios: recolocacionSinCambios(resultado, sesionesExistentes, enlaces)
     }
   }
 
@@ -323,6 +334,51 @@ export function useRedistribucion() {
     return previews
   }
 
+  // Cómo quedaría el reparto de cada asignatura-grupo del curso si su
+  // calendario (fechas, festivos, tramos de vigencia; aún sin guardar)
+  // pasase a ser `calendario`. Se recoloca desde hoy; lo anterior y lo ya
+  // impartido no se toca. Solo devuelve las que de verdad cambian.
+  async function previsualizarCambioCurso(
+    cursoId: string,
+    calendario: { fechaInicio: string, fechaFin: string, festivos: RangoFecha[], vigencias: Map<string, RangoFecha[]> }
+  ): Promise<PreviewGrupoAsignatura[]> {
+    const { data: grupos } = await supabase
+      .from('grupos')
+      .select('id, nombre')
+      .eq('curso_id', cursoId)
+    if (!grupos?.length) return []
+
+    const { data: grupoAsignaturas } = await supabase
+      .from('grupo_asignaturas')
+      .select('id, grupo_id, asignatura_id')
+      .in('grupo_id', grupos.map(g => g.id))
+    if (!grupoAsignaturas?.length) return []
+
+    const { data: asignaturas } = await supabase
+      .from('asignaturas')
+      .select('id, nombre')
+      .in('id', [...new Set(grupoAsignaturas.map(ga => ga.asignatura_id))])
+
+    const hoy = fechaLocalISO()
+    const previews: PreviewGrupoAsignatura[] = []
+    for (const ga of grupoAsignaturas) {
+      const datos = await cargarSesionesYFranjas(ga.id)
+      if (!datos) continue
+
+      const preview = await calcularRecolocacion(ga, datos, {
+        fechaCorte: hoy > calendario.fechaInicio ? hoy : calendario.fechaInicio,
+        fechaFin: calendario.fechaFin,
+        festivos: calendario.festivos,
+        vigencias: calendario.vigencias
+      })
+      if (preview.sinCambios) continue
+      preview.grupoNombre = grupos.find(g => g.id === ga.grupo_id)?.nombre ?? ''
+      preview.asignaturaNombre = asignaturas?.find(a => a.id === ga.asignatura_id)?.nombre ?? ''
+      previews.push(preview)
+    }
+    return previews
+  }
+
   // Aplica previews ya calculados en una sola transacción (función de
   // Postgres aplicar_recolocacion): o se guardan todos, o ninguno. Las
   // sesiones nuevas se crean ya "confirmada" (el profesor ya ha revisado la
@@ -404,5 +460,5 @@ export function useRedistribucion() {
     await aplicarRecolocaciones([preview])
   }
 
-  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura, previsualizarCambioTemario, previsualizarCambioHorario, aplicarRecolocaciones }
+  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura, previsualizarCambioTemario, previsualizarCambioHorario, previsualizarCambioCurso, aplicarRecolocaciones }
 }
