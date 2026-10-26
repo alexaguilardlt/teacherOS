@@ -286,7 +286,8 @@ export function useDashboardReparto() {
   }
 
   async function alternarImpartida(sesionId: string, estadoActual: string) {
-    if (!esSesionPropia(sesionId)) return
+    // Una clase cancelada no se da: no hay nada que marcar.
+    if (!esSesionPropia(sesionId) || estadoActual === 'cancelada') return
     const nuevoEstado = estadoActual === 'impartida' ? 'confirmada' : 'impartida'
     actualizandoEstadoId.value = sesionId
     const { error } = await supabase.from('sesiones').update({ estado: nuevoEstado }).eq('id', sesionId)
@@ -349,6 +350,8 @@ export function useDashboardReparto() {
 
     const sesionesPorFecha = new Map<string, { color: string, grupo: string, asignatura: string }[]>()
     for (const sesion of sesionesDelCurso.value) {
+      // Una clase cancelada no pinta el día como día con clase.
+      if (sesion.estado === 'cancelada') continue
       const detalle = detalleSesion(sesion)
       if (!sesionesPorFecha.has(sesion.fecha)) sesionesPorFecha.set(sesion.fecha, [])
       sesionesPorFecha.get(sesion.fecha)!.push({ color: detalle.color, grupo: detalle.grupo, asignatura: detalle.asignatura })

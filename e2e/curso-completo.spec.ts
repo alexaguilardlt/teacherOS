@@ -25,7 +25,7 @@ test.afterEach(async () => {
 test('crear un curso con horario reducido+normal, generar reparto y verlo en el dashboard', async ({ page }) => {
   // Recorre el asistente entero, genera el reparto y edita el temario: no
   // cabe en los 30 s por defecto.
-  test.setTimeout(240_000)
+  test.setTimeout(300_000)
   await login(page)
 
   await gotoReady(page, '/curso/nuevo')
@@ -222,4 +222,31 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   await page.waitForURL('/dashboard')
   await gotoReady(page, urlReparto)
   await expect(page.getByText('Porcentajes').first()).toBeVisible()
+
+  // Saltar una clase la deja cancelada (no la borra), y sigue cancelada
+  // aunque después se recoloque el reparto por otro motivo.
+  const fechas = await page.locator('tbody tr td:first-child').allTextContents()
+  const fechaSaltada = fechas.map(f => f.trim()).sort().at(-1)!
+  await page.getByRole('button', { name: 'Saltar una fecha (solo esta asignatura)' }).click()
+  await page.getByLabel('Fecha a saltar').fill(fechaSaltada)
+  await page.getByRole('button', { name: 'Previsualizar' }).click()
+  await expect(page.getByText('La clase de ese día queda cancelada')).toBeVisible()
+  await page.getByRole('button', { name: 'Confirmar', exact: true }).click()
+  const filaSaltada = page.locator('tbody tr', { hasText: fechaSaltada })
+  await expect(filaSaltada).toContainText('Cancelada')
+
+  await gotoReady(page, urlAsignatura)
+  await page.getByRole('button', { name: 'Añadir punto del tema' }).click()
+  await page.getByLabel('Punto del tema', { exact: true }).last().fill('Proporciones')
+  await page.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByText('Esta asignatura ya está repartida.')).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar y recolocar' }).click()
+  await page.waitForURL('/dashboard')
+  await gotoReady(page, urlReparto)
+  await expect(page.locator('tbody tr', { hasText: fechaSaltada })).toContainText('Cancelada')
+
+  // Regenerar el reparto desde cero también respeta el día cancelado.
+  await page.getByRole('button', { name: 'Regenerar reparto' }).click()
+  await expect(page.getByText(/Se han creado \d+ sesiones\./)).toBeVisible()
+  await expect(page.locator('tbody tr', { hasText: fechaSaltada })).toContainText('Cancelada')
 })

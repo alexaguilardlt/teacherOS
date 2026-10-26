@@ -2,11 +2,13 @@
 
 ## Pendientes
 
-- **Saltar una clase no queda guardado.** Al saltar una clase de un grupo se
-  borra esa sesión y se recoloca el resto, pero el día saltado no se guarda en
-  ningún sitio: si después se recoloca ese grupo por otro motivo, vuelve a
-  tener clase ese día. Idea: marcar la sesión como `cancelada` en vez de
-  borrarla y que la recolocación la respete como hueco ocupado.
+- **Recuperar una clase saltada.** Una clase saltada queda `cancelada` para
+  siempre: si se saltó por error (o la excursión no se hace), no hay forma de
+  recuperarla salvo eliminar el reparto entero. Idea: "Recuperar clase", que la
+  vuelva a `confirmada` y recoloque desde esa fecha con vista previa.
+- Saltar una clase con la vista previa abierta mientras en otra pestaña se
+  marca como impartida: no se cancela pero su contenido se reparte otra vez
+  (queda duplicado). Muy improbable.
 - **Las notas de sesiones futuras se pierden al recolocar.** La recolocación
   borra las sesiones futuras y crea otras: una nota escrita con antelación se
   pierde. Habría que trasladarla con su subtema. (Sin comprobar todavía.)
@@ -24,6 +26,8 @@
 
 ## Hechas
 
+- Saltar una clase queda guardado: la sesión pasa a `cancelada` y ninguna
+  recolocación ni regeneración vuelve a poner clase ese día.
 - Saltar una clase de una sola asignatura, sin marcar el día entero.
 - Festivos de un solo día.
 - Notas en las sesiones.

@@ -84,7 +84,17 @@ export function useReparto() {
       })
       .filter((f): f is NonNullable<typeof f> => f !== null)
 
+    const { data: sesionesAnteriores } = await supabase
+      .from('sesiones')
+      .select('id, estado, franja_horaria_id, fecha')
+      .in('franja_horaria_id', franjas.map(f => f.id))
+
+    // Un día cancelado (una clase saltada) sigue sin clase aunque se regenere.
+    const canceladas = new Set(
+      (sesionesAnteriores ?? []).filter(s => s.estado === 'cancelada').map(s => `${s.franja_horaria_id}__${s.fecha}`)
+    )
     const slots = construirSlots(franjasParaSlots, curso.fecha_inicio, curso.fecha_fin, festivosRangos)
+      .filter(slot => !canceladas.has(`${slot.franjaId}__${slot.fecha}`))
     if (!slots.length) {
       throw new Error('No hay días lectivos disponibles para el horario de este grupo.')
     }
@@ -108,16 +118,12 @@ export function useReparto() {
     }
 
     // Si ya había un reparto, se sustituye entero (también lo impartido: es
-    // "regenerar desde cero"). Borrar el viejo y crear el nuevo va en una sola
-    // transacción: si algo falla, el reparto anterior se queda como estaba.
-    const { data: sesionesAnteriores } = await supabase
-      .from('sesiones')
-      .select('id')
-      .in('franja_horaria_id', franjas.map(f => f.id))
-
+    // "regenerar desde cero"), salvo las clases canceladas: siguen siendo días
+    // sin clase. Borrar el viejo y crear el nuevo va en una sola transacción:
+    // si algo falla, el reparto anterior se queda como estaba.
     const { data: sesionesCreadas, error } = await supabase.rpc('aplicar_recolocacion', {
       recolocaciones: [aRecolocacionJson(
-        (sesionesAnteriores ?? []).map(s => s.id),
+        (sesionesAnteriores ?? []).filter(s => s.estado !== 'cancelada').map(s => s.id),
         [...sesionesPorClave.values()],
         'propuesta'
       )]

@@ -15,6 +15,8 @@ export interface PreviewGrupoAsignatura {
   asignaturaNombre: string
   sesionesAEliminarIds: string[]
   sesionesNuevas: SesionPropuesta[]
+  // Se quedan como 'cancelada' y sin contenido (una clase saltada).
+  sesionesACancelarIds: string[]
   subtemasNoAsignados: string[]
   // Crea exactamente las mismas sesiones que quita: no hace falta aplicarla.
   sinCambios: boolean
@@ -92,7 +94,8 @@ export function useRedistribucion() {
     // los días que se marcan como no lectivos; si no coincide con su horario,
     // no hay nada que reorganizar.
     const tieneSesionEnFestivo = datos.sesiones.some(
-      s => s.fecha >= nuevoFestivo.fechaInicio && s.fecha <= nuevoFestivo.fechaFin && s.estado !== 'impartida'
+      s => s.fecha >= nuevoFestivo.fechaInicio && s.fecha <= nuevoFestivo.fechaFin
+        && s.estado !== 'impartida' && s.estado !== 'cancelada'
     )
     if (!tieneSesionEnFestivo) return null
 
@@ -207,6 +210,7 @@ export function useRedistribucion() {
       asignaturaNombre: '',
       sesionesAEliminarIds: resultado.sesionesAEliminarIds,
       sesionesNuevas: resultado.sesionesNuevas,
+      sesionesACancelarIds: [],
       subtemasNoAsignados: resultado.subtemasNoAsignadosIds.map(id => nombrePorId.get(id) ?? id),
       sinCambios: recolocacionSinCambios(resultado, sesionesExistentes, enlaces)
     }
@@ -449,8 +453,21 @@ export function useRedistribucion() {
       { inicio: fecha, fin: fecha }
     ]
 
+    // La clase de ese día no se borra: se cancela, para que quede guardado
+    // que ese día no hay clase y ninguna recolocación posterior la vuelva a
+    // poner (las canceladas son huecos ocupados para el algoritmo).
+    const datos = await cargarSesionesYFranjas(ga.id)
+    const { aCancelar, motivo } = sesionesAlSaltarUnDia(
+      (datos?.sesiones ?? []).map(s => ({ id: s.id, franjaId: s.franja_horaria_id, fecha: s.fecha, estado: s.estado })),
+      fecha,
+      fechaLocalISO()
+    )
+    if (motivo) throw new Error(motivo)
+
     const preview = await previsualizarGrupoAsignatura(ga, curso.fecha_fin, { fechaInicio: fecha, fechaFin: fecha }, festivosRangos)
     if (!preview) return null
+    preview.sesionesACancelarIds = aCancelar
+    preview.sesionesAEliminarIds = preview.sesionesAEliminarIds.filter(id => !aCancelar.includes(id))
     preview.grupoNombre = grupo.nombre
     preview.asignaturaNombre = asignatura?.nombre ?? ''
     return preview

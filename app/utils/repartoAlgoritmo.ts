@@ -168,9 +168,16 @@ export interface ResultadoRecolocacion {
 }
 
 // Una sesión ya no se toca si es anterior al corte o si ya se impartió:
-// es historia. Todo lo demás se puede recolocar.
+// es historia. Tampoco si se canceló (una clase saltada): así su día sigue
+// ocupado y ninguna recolocación vuelve a poner clase ahí. Todo lo demás se
+// puede recolocar.
 function esSesionFija(sesion: SesionExistente, fechaCorte: string) {
-  return sesion.fecha < fechaCorte || sesion.estado === 'impartida'
+  return sesion.fecha < fechaCorte || sesion.estado === 'impartida' || sesion.estado === 'cancelada'
+}
+
+// Lo que cuenta como dado: lo de las sesiones fijas que no se cancelaron.
+function sesionDaContenido(sesion: SesionExistente, fechaCorte: string) {
+  return esSesionFija(sesion, fechaCorte) && sesion.estado !== 'cancelada'
 }
 
 // Recalcula el reparto de una asignatura-grupo a partir de `fechaCorte`: las
@@ -194,10 +201,25 @@ export function recolocarDesde(params: {
 }): ResultadoRecolocacion {
   const { subtemasOrdenados, sesiones, enlaces, franjas, fechaCorte, fechaFin, festivos } = params
 
-  const sesionesFijasIds = new Set(sesiones.filter(s => esSesionFija(s, fechaCorte)).map(s => s.id))
+  const clave = (franjaId: string, fecha: string) => `${franjaId}__${fecha}`
+  const huecos = construirSlots(franjas, fechaCorte, fechaFin, festivos)
+  const huecosValidos = new Set(huecos.map(h => clave(h.franjaId, h.fecha)))
+
+  // Una clase cancelada a partir del corte que ya no cae en ningún hueco (su
+  // franja cambió de día, el curso de fechas, o ese día pasó a ser festivo)
+  // ya no significa nada: se quita en vez de dejarla colgando.
+  const canceladasSinHueco = new Set(
+    sesiones
+      .filter(s => s.estado === 'cancelada' && s.fecha >= fechaCorte && !huecosValidos.has(clave(s.franjaId, s.fecha)))
+      .map(s => s.id)
+  )
+  const sesionesFijasIds = new Set(
+    sesiones.filter(s => esSesionFija(s, fechaCorte) && !canceladasSinHueco.has(s.id)).map(s => s.id)
+  )
+  const sesionesDadasIds = new Set(sesiones.filter(s => sesionDaContenido(s, fechaCorte)).map(s => s.id))
   const sesionesFijasPorSubtema = new Map<string, Set<string>>()
   for (const enlace of enlaces) {
-    if (!sesionesFijasIds.has(enlace.sesionId)) continue
+    if (!sesionesDadasIds.has(enlace.sesionId)) continue
     const ids = sesionesFijasPorSubtema.get(enlace.subtemaId) ?? new Set<string>()
     ids.add(enlace.sesionId)
     sesionesFijasPorSubtema.set(enlace.subtemaId, ids)
@@ -213,10 +235,9 @@ export function recolocarDesde(params: {
   // Un hueco ocupado por una sesión fija (ej. la clase de hoy, ya marcada
   // como impartida) no se puede volver a usar.
   const ocupados = new Set(
-    sesiones.filter(s => sesionesFijasIds.has(s.id)).map(s => `${s.franjaId}__${s.fecha}`)
+    sesiones.filter(s => sesionesFijasIds.has(s.id)).map(s => clave(s.franjaId, s.fecha))
   )
-  const slots = construirSlots(franjas, fechaCorte, fechaFin, festivos)
-    .filter(slot => !ocupados.has(`${slot.franjaId}__${slot.fecha}`))
+  const slots = huecos.filter(slot => !ocupados.has(clave(slot.franjaId, slot.fecha)))
   const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloquesPendientes, slots)
 
   const sesionesPorClave = new Map<string, SesionRecolocada>()
@@ -244,7 +265,7 @@ export function subtemasYaDados(
   hoy: string
 ): Map<string, string> {
   const fechaPorSesionFija = new Map(
-    sesiones.filter(s => esSesionFija(s, hoy)).map(s => [s.id, s.fecha])
+    sesiones.filter(s => sesionDaContenido(s, hoy)).map(s => [s.id, s.fecha])
   )
   const dados = new Map<string, string>()
   for (const enlace of enlaces) {
@@ -281,4 +302,26 @@ export function recolocacionSinCambios(
     .map(s => clave(s.franjaId, s.fecha, s.subtemas.map(x => x.subtemaId)))
     .sort()
   return antes.length === despues.length && antes.every((c, i) => c === despues[i])
+}
+
+// Qué sesiones cancelar al saltar la clase de un día para una
+// asignatura-grupo, o por qué no se puede saltar. Lo pasado es historia: no
+// se salta un día anterior a hoy ni una clase ya impartida. Sin `motivo` y
+// sin sesiones a cancelar, ese día no hay clase.
+export function sesionesAlSaltarUnDia(
+  sesiones: SesionExistente[],
+  fecha: string,
+  hoy: string
+): { aCancelar: string[], motivo?: string } {
+  if (fecha < hoy) return { aCancelar: [], motivo: 'No se puede saltar un día que ya ha pasado.' }
+
+  const delDia = sesiones.filter(s => s.fecha === fecha)
+  const aCancelar = delDia.filter(s => s.estado !== 'impartida' && s.estado !== 'cancelada').map(s => s.id)
+  if (!aCancelar.length && delDia.some(s => s.estado === 'cancelada')) {
+    return { aCancelar, motivo: 'La clase de ese día ya está cancelada.' }
+  }
+  if (!aCancelar.length && delDia.some(s => s.estado === 'impartida')) {
+    return { aCancelar, motivo: 'La clase de ese día ya está impartida: no se puede saltar.' }
+  }
+  return { aCancelar }
 }

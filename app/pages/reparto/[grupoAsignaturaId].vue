@@ -336,6 +336,7 @@ async function onConfirmarSalto() {
             <UInput
               v-model="fechaASaltar"
               type="date"
+              :min="fechaLocalISO()"
               class="w-full"
             />
           </UFormField>
@@ -350,7 +351,7 @@ async function onConfirmarSalto() {
 
           <div v-if="previewSalto">
             <p class="mb-2 text-sm font-medium">
-              {{ previewSalto.sesionesAEliminarIds.length }} sesiones futuras se reorganizan en {{ previewSalto.sesionesNuevas.length }} nuevas sesiones.
+              La clase de ese día queda cancelada, y {{ previewSalto.sesionesAEliminarIds.length }} sesiones futuras se reorganizan en {{ previewSalto.sesionesNuevas.length }} nuevas sesiones.
             </p>
             <p
               v-if="previewSalto.subtemasNoAsignados.length"

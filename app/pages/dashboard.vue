@@ -483,7 +483,7 @@ async function onConfirmarRedistribucion() {
                           {{ etiquetaEstado[sesion.estado] }}
                         </UBadge>
                         <UButton
-                          v-if="detalleSesion(sesion).propia"
+                          v-if="detalleSesion(sesion).propia && sesion.estado !== 'cancelada'"
                           :icon="sesion.estado === 'impartida' ? 'i-lucide-rotate-ccw' : 'i-lucide-check'"
                           color="neutral"
                           variant="ghost"
@@ -493,7 +493,7 @@ async function onConfirmarRedistribucion() {
                           @click="alternarImpartida(sesion.id, sesion.estado)"
                         />
                         <span
-                          v-else
+                          v-else-if="!detalleSesion(sesion).propia"
                           class="text-xs text-muted"
                         >
                           No la impartes tú
@@ -652,6 +652,7 @@ async function onConfirmarRedistribucion() {
                           {{ etiquetaEstado[detalle.estado] }}
                         </UBadge>
                         <UButton
+                          v-if="detalle.estado !== 'cancelada'"
                           :icon="detalle.estado === 'impartida' ? 'i-lucide-rotate-ccw' : 'i-lucide-check'"
                           color="neutral"
                           variant="ghost"
