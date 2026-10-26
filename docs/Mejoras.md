@@ -2,10 +2,9 @@
 
 ## Pendientes
 
-- **Recuperar una clase saltada.** Una clase saltada queda `cancelada` para
-  siempre: si se saltó por error (o la excursión no se hace), no hay forma de
-  recuperarla salvo eliminar el reparto entero. Idea: "Recuperar clase", que la
-  vuelva a `confirmada` y recoloque desde esa fecha con vista previa.
+- Recuperar una clase saltada de un día ya pasado (por ejemplo, se marcó por
+  error y no se corrigió a tiempo): hoy no se puede, porque lo pasado es
+  historia.
 - Saltar una clase con la vista previa abierta mientras en otra pestaña se
   marca como impartida: no se cancela pero su contenido se reparte otra vez
   (queda duplicado). Muy improbable.
@@ -26,6 +25,8 @@
 
 ## Hechas
 
+- Recuperar una clase saltada (de hoy en adelante): ese día vuelve a tener
+  clase y el reparto se recoloca desde su fecha, con vista previa.
 - Saltar una clase queda guardado: la sesión pasa a `cancelada` y ninguna
   recolocación ni regeneración vuelve a poner clase ese día.
 - Saltar una clase de una sola asignatura, sin marcar el día entero.

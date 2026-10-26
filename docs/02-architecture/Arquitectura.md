@@ -49,7 +49,9 @@ asignaturas ─┬─ temas    │                                      notas)  
   el ritmo del reparto, pero no se marca ni se anota.
 - **Sesiones**: la clase de un día concreto en una franja (`unique
   (franja_horaria_id, fecha)`), con estado `propuesta` (recién generada),
-  `confirmada`, `cancelada` o `impartida`, y notas libres. Una sesión puede
+  `confirmada`, `cancelada` (clase saltada: no recibe contenido y su día queda
+  ocupado; de hoy en adelante se puede recuperar) o `impartida`, y notas
+  libres. Una sesión puede
   repartirse entre dos subtemas de 0,5 (`sesion_subtemas.fraccion`).
 - **Solapes**: un trigger impide que un profesor tenga dos franjas propias a la
   misma hora en horarios tipo cuyas vigencias coinciden.
@@ -57,7 +59,7 @@ asignaturas ─┬─ temas    │                                      notas)  
   horario tipo borra en cascada lo que cuelga de ellos, sesiones incluidas.
   Por eso la app nunca borra y recrea al editar (ver `CLAUDE.md`).
 
-Migraciones en `supabase/migrations/` (001–018). Tipos de TypeScript en
+Migraciones en `supabase/migrations/` (001–019). Tipos de TypeScript en
 `app/types/database.types.ts`, mantenidos a mano.
 
 ## Algoritmo de reparto (`app/utils/repartoAlgoritmo.ts`)
@@ -71,18 +73,24 @@ Determinista y greedy:
 3. `repartirBloques`: asigna los bloques a los huecos en orden. Lo que no cabe
    antes del fin de curso se devuelve aparte y se avisa ("no caben…").
 
-Recolocar (festivo nuevo, saltar una clase, cambios de temario, de horario o de
-calendario) usa `recolocarDesde`: a partir de una fecha de corte, las sesiones
-anteriores y las impartidas se quedan fijas (y su hueco ocupado), de cada
-bloque se descuenta lo ya dado, y el resto se vuelve a repartir.
+Recolocar (festivo nuevo, saltar o recuperar una clase, cambios de temario, de
+horario o de calendario) usa `recolocarDesde`: a partir de una fecha de corte,
+las sesiones anteriores, las impartidas y las canceladas se quedan fijas (y su
+hueco ocupado, sin contenido en las canceladas), de cada bloque se descuenta lo
+ya dado, y el resto se vuelve a repartir. Una cancelada que ya no cae en ningún
+hueco se quita. `sesionesAlSaltarUnDia` decide qué sesiones se cancelan al
+saltar un día, y `prepararRecuperarClase` vuelve a dar por buenas las clases
+canceladas de un día (de hoy en adelante) y pone el corte en su fecha
+(`motivoNoSeRecupera` lo rechaza si ese día no recibiría clase).
 `recolocacionSinCambios` detecta cuándo eso no cambia nada, para no enseñarlo.
 
 ## Flujos de guardado
 
 | Pantalla | Cálculo (`app/utils/`) | Función de Postgres |
 |---|---|---|
-| Generar / regenerar reparto | `repartirBloques` | `aplicar_recolocacion` (014) |
-| Festivo, saltar una clase | `recolocarDesde` | `aplicar_recolocacion` (014) |
+| Generar / regenerar reparto | `repartirBloques` | `aplicar_recolocacion` (014, 019) |
+| Festivo, saltar una clase | `sesionesAlSaltarUnDia`, `recolocarDesde` | `aplicar_recolocacion` (014, 019) |
+| Recuperar una clase saltada | `prepararRecuperarClase`, `recolocarDesde` | `aplicar_recolocacion` (014, 019) |
 | Editar asignatura | `planificarGuardadoTemario`, `temarioAfectaAlReparto` | `guardar_temario` (015) |
 | Nuevo / editar grupo | `planificarGuardadoGrupo` | `guardar_grupo` (016) |
 | Asistente de nuevo curso | `construirCursoNuevo` | `crear_curso` (017) |

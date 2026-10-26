@@ -17,7 +17,8 @@ enseñando antes cómo quedan.
 - Reparto automático del temario: cada subtema dura lo que diga el profesor
   (en bloques de media sesión), con exámenes y repasos intercalados.
 - Redistribución con vista previa al marcar un día no lectivo, saltar una clase
-  concreta o cambiar temario, horario o calendario. Lo ya dado no se toca.
+  concreta (o recuperarla si al final sí hay clase) o cambiar temario, horario
+  o calendario. Lo ya dado no se toca.
 - Dashboard con calendario, horario semanal, sesiones impartidas y notas.
 
 ## Stack
