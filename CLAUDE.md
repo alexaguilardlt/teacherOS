@@ -74,3 +74,15 @@ Forma de trabajar
   toca guardado o reparto, un paso en `e2e/curso-completo.spec.ts`. Comprobar
   que el test falla sin el arreglo.
 - Código, comentarios, commits y PR en español.
+
+## Agentes del proyecto (`.claude/agents/`)
+
+- `revisor-codigo`: revisa la rama frente a `main` con las reglas de arriba.
+- `revisor-migraciones`: revisa las migraciones antes de aplicarlas.
+- `verificador`: lint, typecheck, unitarios y, si toca, e2e; resume los fallos.
+- `documentador`: propone qué actualizar en la documentación tras un cambio.
+
+Antes de abrir un PR: `verificador` y `revisor-codigo` (más
+`revisor-migraciones` si hay migración, y `documentador` si cambia el
+modelo, una funcionalidad o la forma de trabajar). Ninguno modifica código ni
+aplica migraciones.
