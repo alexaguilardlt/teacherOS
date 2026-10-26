@@ -1,0 +1,23 @@
+name: supabase-keepalive
+
+# El plan gratuito de Supabase pausa el proyecto tras ~7 días sin actividad.
+# Una consulta mínima cada 3 días lo mantiene despierto.
+on:
+  schedule:
+    - cron: '0 6 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          curl --fail --silent --show-error --max-time 30 \
+            "$SUPABASE_URL/rest/v1/asignaturas?select=id&limit=1" \
+            -H "apikey: $SUPABASE_KEY" \
+            -o /dev/null
