@@ -367,6 +367,10 @@ export type Database = {
         Args: { recolocaciones: Json, festivo?: Json }
         Returns: number
       }
+      crear_curso: {
+        Args: { p_datos: Json }
+        Returns: string
+      }
       guardar_grupo: {
         Args: {
           p_grupo_id: string
