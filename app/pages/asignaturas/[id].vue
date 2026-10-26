@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import type { ElementoTemarioWizard, TemaWizard, TipoElementoSuelto } from '~/stores/cursoWizard.types'
 import { moverEnLista } from '~/utils/listas'
-import { planificarGuardadoTemario } from '~/utils/temario'
+import type { PreviewGrupoAsignatura } from '~/composables/useRedistribucion'
+import { fechaLocalISO } from '~/utils/fechas'
+import { subtemasYaDados, temarioAfectaAlReparto } from '~/utils/repartoAlgoritmo'
+import { planificarGuardadoTemario, type PlanGuardadoTemario } from '~/utils/temario'
 
 const route = useRoute()
 const asignaturaId = route.params.id as string
 
 const supabase = useSupabaseClient()
+const { previsualizarCambioTemario, aplicarPreview } = useRedistribucion()
 
 const etiquetaTipoSuelto: Record<TipoElementoSuelto, string> = {
   repaso: 'Repaso',
@@ -52,6 +56,38 @@ const { data: subtemasIniciales } = await useAsyncData(`asignatura-${asignaturaI
     .order('orden', { ascending: true })
   return data ?? []
 })
+
+// Sesiones en las que aparece algún subtema de la asignatura: sirven para
+// saber qué se ha dado ya (y no se puede borrar).
+const { data: sesionesConSubtemas } = await useAsyncData(`asignatura-${asignaturaId}-sesiones`, async () => {
+  const subtemaIds = (subtemasIniciales.value ?? []).map(s => s.id)
+  if (!subtemaIds.length) return { sesiones: [], enlaces: [] }
+  const { data: enlaces } = await supabase
+    .from('sesion_subtemas')
+    .select('sesion_id, subtema_id')
+    .in('subtema_id', subtemaIds)
+  const sesionIds = [...new Set((enlaces ?? []).map(e => e.sesion_id))]
+  if (!sesionIds.length) return { sesiones: [], enlaces: [] }
+  const { data: sesiones } = await supabase
+    .from('sesiones')
+    .select('id, franja_horaria_id, fecha, estado')
+    .in('id', sesionIds)
+  return {
+    sesiones: (sesiones ?? []).map(s => ({ id: s.id, franjaId: s.franja_horaria_id, fecha: s.fecha, estado: s.estado })),
+    enlaces: (enlaces ?? []).map(e => ({ sesionId: e.sesion_id, subtemaId: e.subtema_id }))
+  }
+})
+
+const fechaDadoPorSubtemaId = computed(() =>
+  subtemasYaDados(sesionesConSubtemas.value?.sesiones ?? [], sesionesConSubtemas.value?.enlaces ?? [], fechaLocalISO())
+)
+
+// Texto para el botón de borrar desactivado, o undefined si se puede borrar.
+function motivoNoBorrable(subtemaIds: string[]) {
+  const fechas = subtemaIds.map(id => fechaDadoPorSubtemaId.value.get(id)).filter(f => f !== undefined).sort()
+  if (!fechas.length) return undefined
+  return `Ya se dio el ${fechas[0]!.split('-').reverse().join('/')}: no se puede borrar.`
+}
 
 const nombre = ref(asignatura.value.nombre)
 
@@ -135,10 +171,70 @@ function moverSubtema(temaClienteId: string, subtemaClienteId: string, direccion
 const guardando = ref(false)
 const errorMessage = ref('')
 
+// Si el cambio afecta a un reparto ya generado, antes de guardar se enseña
+// cómo quedarían las sesiones a partir de hoy, y el temario y el reparto
+// se guardan juntos: nunca queda un temario nuevo con sesiones del viejo.
+const planPendiente = ref<PlanGuardadoTemario | null>(null)
+const previewsRecolocacion = ref<PreviewGrupoAsignatura[]>([])
+const modalRecolocarAbierto = ref(false)
+
 async function guardar() {
   guardando.value = true
   errorMessage.value = ''
 
+  try {
+    const plan = planificarGuardadoTemario(asignaturaId, elementos.value, {
+      temaIds: (temasIniciales.value ?? []).map(t => t.id),
+      subtemaIds: (subtemasIniciales.value ?? []).map(s => s.id)
+    })
+
+    const borradoYaDado = plan.subtemaIdsABorrar.find(id => fechaDadoPorSubtemaId.value.has(id))
+    if (borradoYaDado) {
+      throw new Error('No se puede borrar un punto del temario que ya se ha dado.')
+    }
+
+    const antes = (subtemasIniciales.value ?? []).map(s => ({ id: s.id, duracionSesiones: Number(s.duracion_sesiones) }))
+    const despues = plan.subtemas.map(s => ({ id: s.id, duracionSesiones: s.duracion_sesiones }))
+    if (temarioAfectaAlReparto(antes, despues)) {
+      const previews = await previsualizarCambioTemario(
+        asignaturaId,
+        plan.subtemas.map(s => ({ id: s.id, nombre: s.nombre, duracionSesiones: s.duracion_sesiones }))
+      )
+      if (previews.length) {
+        planPendiente.value = plan
+        previewsRecolocacion.value = previews
+        modalRecolocarAbierto.value = true
+        return
+      }
+    }
+
+    await guardarTemario(plan, [])
+  } catch (e) {
+    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+  } finally {
+    guardando.value = false
+  }
+}
+
+const recolocando = ref(false)
+
+async function confirmarRecolocacion() {
+  if (!planPendiente.value) return
+  recolocando.value = true
+  try {
+    await guardarTemario(planPendiente.value, previewsRecolocacion.value)
+  } catch (e) {
+    // La vista previa se calculó con las sesiones de antes: si algo se llegó
+    // a aplicar, ya no vale. Hay que volver a pulsar Guardar para recalcularla.
+    modalRecolocarAbierto.value = false
+    planPendiente.value = null
+    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+  } finally {
+    recolocando.value = false
+  }
+}
+
+async function guardarTemario(plan: PlanGuardadoTemario, previews: PreviewGrupoAsignatura[]) {
   try {
     const { error: errorAsignatura } = await supabase
       .from('asignaturas')
@@ -146,14 +242,10 @@ async function guardar() {
       .eq('id', asignaturaId)
     if (errorAsignatura) throw errorAsignatura
 
-    const plan = planificarGuardadoTemario(asignaturaId, elementos.value, {
-      temaIds: (temasIniciales.value ?? []).map(t => t.id),
-      subtemaIds: (subtemasIniciales.value ?? []).map(s => s.id)
-    })
-
-    // Primero se guarda todo lo que queda y al final se borra lo quitado:
-    // si algo falla a mitad, como mucho se queda sin aplicar parte de la
-    // edición, pero no se pierde nada de lo que ya había.
+    // Primero se guarda todo lo que queda, luego se recoloca el reparto (las
+    // sesiones nuevas ya pueden apuntar a los subtemas nuevos) y al final se
+    // borra lo quitado: si algo falla a mitad, como mucho se queda sin
+    // aplicar parte de la edición, pero no se pierde nada de lo que había.
     if (plan.temas.length) {
       const { error: errorTemas } = await supabase.from('temas').upsert(plan.temas)
       if (errorTemas) throw errorTemas
@@ -162,6 +254,10 @@ async function guardar() {
     if (plan.subtemas.length) {
       const { error: errorSubtemas } = await supabase.from('subtemas').upsert(plan.subtemas)
       if (errorSubtemas) throw errorSubtemas
+    }
+
+    for (const preview of previews) {
+      await aplicarPreview(preview)
     }
 
     if (plan.subtemaIdsABorrar.length) {
@@ -173,16 +269,16 @@ async function guardar() {
       const { error: errorBorrarTemas } = await supabase.from('temas').delete().in('id', plan.temaIdsABorrar)
       if (errorBorrarTemas) throw errorBorrarTemas
     }
-
-    await navigateTo('/dashboard')
   } catch (e) {
-    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
     // Lo que sí llegó a guardarse pasa a contar como existente: si se
     // vuelve a intentar, se borra lo que sobre en vez de duplicarse.
+    // Las sesiones se piden a partir de los subtemas: van después.
     await refreshNuxtData([`asignatura-${asignaturaId}-temas`, `asignatura-${asignaturaId}-subtemas`])
-  } finally {
-    guardando.value = false
+    await refreshNuxtData(`asignatura-${asignaturaId}-sesiones`)
+    throw e
   }
+
+  await navigateTo('/dashboard')
 }
 
 const eliminando = ref(false)
@@ -258,13 +354,19 @@ async function eliminarAsignatura() {
             aria-label="Mover abajo"
             @click="moverElemento(elemento.clienteId, 'abajo')"
           />
-          <UButton
-            icon="i-lucide-trash-2"
-            color="neutral"
-            variant="ghost"
-            aria-label="Eliminar tema"
-            @click="eliminarElemento(elemento.clienteId)"
-          />
+          <UTooltip
+            :text="motivoNoBorrable(elemento.subtemas.map(s => s.clienteId))"
+            :disabled="!motivoNoBorrable(elemento.subtemas.map(s => s.clienteId))"
+          >
+            <UButton
+              :icon="motivoNoBorrable(elemento.subtemas.map(s => s.clienteId)) ? 'i-lucide-lock' : 'i-lucide-trash-2'"
+              color="neutral"
+              variant="ghost"
+              :disabled="Boolean(motivoNoBorrable(elemento.subtemas.map(s => s.clienteId)))"
+              :aria-label="motivoNoBorrable(elemento.subtemas.map(s => s.clienteId)) ?? 'Eliminar tema'"
+              @click="eliminarElemento(elemento.clienteId)"
+            />
+          </UTooltip>
         </div>
 
         <UFormField
@@ -322,13 +424,19 @@ async function eliminarAsignatura() {
               aria-label="Mover abajo"
               @click="moverSubtema(elemento.clienteId, subtema.clienteId, 'abajo')"
             />
-            <UButton
-              icon="i-lucide-trash-2"
-              color="neutral"
-              variant="ghost"
-              aria-label="Eliminar punto del tema"
-              @click="eliminarSubtema(elemento.clienteId, subtema.clienteId)"
-            />
+            <UTooltip
+              :text="motivoNoBorrable([subtema.clienteId])"
+              :disabled="!motivoNoBorrable([subtema.clienteId])"
+            >
+              <UButton
+                :icon="motivoNoBorrable([subtema.clienteId]) ? 'i-lucide-lock' : 'i-lucide-trash-2'"
+                color="neutral"
+                variant="ghost"
+                :disabled="Boolean(motivoNoBorrable([subtema.clienteId]))"
+                :aria-label="motivoNoBorrable([subtema.clienteId]) ?? 'Eliminar punto del tema'"
+                @click="eliminarSubtema(elemento.clienteId, subtema.clienteId)"
+              />
+            </UTooltip>
           </div>
 
           <UButton
@@ -386,13 +494,19 @@ async function eliminarAsignatura() {
           aria-label="Mover abajo"
           @click="moverElemento(elemento.clienteId, 'abajo')"
         />
-        <UButton
-          icon="i-lucide-trash-2"
-          color="neutral"
-          variant="ghost"
-          aria-label="Eliminar elemento"
-          @click="eliminarElemento(elemento.clienteId)"
-        />
+        <UTooltip
+          :text="motivoNoBorrable([elemento.clienteId])"
+          :disabled="!motivoNoBorrable([elemento.clienteId])"
+        >
+          <UButton
+            :icon="motivoNoBorrable([elemento.clienteId]) ? 'i-lucide-lock' : 'i-lucide-trash-2'"
+            color="neutral"
+            variant="ghost"
+            :disabled="Boolean(motivoNoBorrable([elemento.clienteId]))"
+            :aria-label="motivoNoBorrable([elemento.clienteId]) ?? 'Eliminar elemento'"
+            @click="eliminarElemento(elemento.clienteId)"
+          />
+        </UTooltip>
       </div>
     </div>
 
@@ -455,5 +569,38 @@ async function eliminarAsignatura() {
         </UButton>
       </div>
     </div>
+
+    <UModal
+      v-model:open="modalRecolocarAbierto"
+      title="Recolocar el reparto"
+      :dismissible="!recolocando"
+    >
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <p class="text-sm text-muted">
+            Esta asignatura ya está repartida. Con el temario nuevo, las sesiones quedarán así a partir de hoy.
+            Las sesiones anteriores y las ya impartidas no se tocan.
+          </p>
+          <ResumenRedistribucion :previews="previewsRecolocacion" />
+        </div>
+      </template>
+
+      <template #footer>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          :disabled="recolocando"
+          @click="modalRecolocarAbierto = false"
+        >
+          Seguir editando
+        </UButton>
+        <UButton
+          :loading="recolocando"
+          @click="confirmarRecolocacion"
+        >
+          Guardar y recolocar
+        </UButton>
+      </template>
+    </UModal>
   </UContainer>
 </template>

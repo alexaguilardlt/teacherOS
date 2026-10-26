@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agruparEnBloques, construirSlots, estaEnFestivo, repartirBloques } from './repartoAlgoritmo'
+import { agruparEnBloques, construirSlots, estaEnFestivo, recolocarDesde, repartirBloques, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
 
 describe('estaEnFestivo', () => {
   it('detecta una fecha dentro del rango, incluyendo los extremos', () => {
@@ -235,5 +235,142 @@ describe('repartirBloques', () => {
     for (const fecha of asignaciones.map(a => a.slot.fecha)) {
       expect(fecha < '2025-10-01').toBe(true) // dentro de las primeras 4 semanas
     }
+  })
+})
+
+describe('recolocarDesde', () => {
+  // Lunes de octubre de 2026: 5, 12, 19 y 26.
+  const franjas = [{ franjaId: 'f1', diaSemana: 'lunes' as const, horaInicio: '09:00' }]
+  const sesiones = [
+    { id: 'a', franjaId: 'f1', fecha: '2026-10-05', estado: 'confirmada' },
+    { id: 'b', franjaId: 'f1', fecha: '2026-10-12', estado: 'confirmada' },
+    { id: 'c', franjaId: 'f1', fecha: '2026-10-19', estado: 'confirmada' }
+  ]
+  const enlaces = [
+    { sesionId: 'a', subtemaId: 's1' },
+    { sesionId: 'b', subtemaId: 's2' },
+    { sesionId: 'c', subtemaId: 's3' }
+  ]
+  const base = { sesiones, enlaces, franjas, fechaCorte: '2026-10-12', fechaFin: '2026-10-26', festivos: [] }
+
+  it('al quitar un subtema pendiente, adelanta los siguientes sin dejar huecos vacíos', () => {
+    const resultado = recolocarDesde({
+      ...base,
+      subtemasOrdenados: [{ id: 's1', duracionSesiones: 1 }, { id: 's3', duracionSesiones: 1 }]
+    })
+
+    expect(resultado.sesionesAEliminarIds).toEqual(['b', 'c'])
+    expect(resultado.sesionesNuevas).toEqual([
+      { franjaId: 'f1', fecha: '2026-10-12', subtemas: [{ subtemaId: 's3', fraccion: 1 }] }
+    ])
+    expect(resultado.subtemasNoAsignadosIds).toEqual([])
+  })
+
+  it('al alargar un subtema, empuja el resto hacia delante', () => {
+    const resultado = recolocarDesde({
+      ...base,
+      subtemasOrdenados: [
+        { id: 's1', duracionSesiones: 1 },
+        { id: 's2', duracionSesiones: 2 },
+        { id: 's3', duracionSesiones: 1 }
+      ]
+    })
+
+    expect(resultado.sesionesNuevas.map(s => [s.fecha, s.subtemas[0]!.subtemaId])).toEqual([
+      ['2026-10-12', 's2'],
+      ['2026-10-19', 's2'],
+      ['2026-10-26', 's3']
+    ])
+  })
+
+  it('no toca las sesiones anteriores al corte ni las ya impartidas, y no reutiliza su hueco', () => {
+    const resultado = recolocarDesde({
+      ...base,
+      sesiones: sesiones.map(s => s.id === 'b' ? { ...s, estado: 'impartida' } : s),
+      subtemasOrdenados: [
+        { id: 's1', duracionSesiones: 1 },
+        { id: 's2', duracionSesiones: 1 },
+        { id: 's3', duracionSesiones: 1 }
+      ]
+    })
+
+    expect(resultado.sesionesAEliminarIds).toEqual(['c'])
+    expect(resultado.sesionesNuevas.map(s => s.fecha)).toEqual(['2026-10-19'])
+  })
+
+  it('avisa de lo que ya no cabe antes del fin de curso', () => {
+    const resultado = recolocarDesde({
+      ...base,
+      subtemasOrdenados: [
+        { id: 's1', duracionSesiones: 1 },
+        { id: 's2', duracionSesiones: 3 },
+        { id: 's3', duracionSesiones: 1 }
+      ]
+    })
+
+    expect(resultado.subtemasNoAsignadosIds).toEqual(['s3'])
+  })
+})
+
+describe('subtemasYaDados', () => {
+  it('devuelve los subtemas de sesiones pasadas o impartidas, con la primera fecha', () => {
+    const sesiones = [
+      { id: 'a', franjaId: 'f1', fecha: '2026-10-05', estado: 'confirmada' },
+      { id: 'b', franjaId: 'f1', fecha: '2026-10-12', estado: 'confirmada' },
+      { id: 'c', franjaId: 'f1', fecha: '2026-10-19', estado: 'impartida' },
+      { id: 'd', franjaId: 'f1', fecha: '2026-10-26', estado: 'confirmada' }
+    ]
+    const enlaces = [
+      { sesionId: 'a', subtemaId: 's1' },
+      { sesionId: 'b', subtemaId: 's1' },
+      { sesionId: 'c', subtemaId: 's2' },
+      { sesionId: 'd', subtemaId: 's3' }
+    ]
+
+    const dados = subtemasYaDados(sesiones, enlaces, '2026-10-12')
+
+    expect([...dados.entries()]).toEqual([['s1', '2026-10-05'], ['s2', '2026-10-19']])
+  })
+})
+
+describe('temarioAfectaAlReparto', () => {
+  const antes = [{ id: 's1', duracionSesiones: 1 }, { id: 's2', duracionSesiones: 0.5 }]
+
+  it('no afecta si solo cambian los nombres', () => {
+    expect(temarioAfectaAlReparto(antes, [...antes])).toBe(false)
+  })
+
+  it('afecta si cambia una duración, el orden o se quita o añade un subtema', () => {
+    expect(temarioAfectaAlReparto(antes, [{ id: 's1', duracionSesiones: 2 }, antes[1]!])).toBe(true)
+    expect(temarioAfectaAlReparto(antes, [antes[1]!, antes[0]!])).toBe(true)
+    expect(temarioAfectaAlReparto(antes, [antes[0]!])).toBe(true)
+    expect(temarioAfectaAlReparto(antes, [...antes, { id: 's3', duracionSesiones: 1 }])).toBe(true)
+  })
+})
+
+describe('recolocarDesde con un subtema a medias', () => {
+  it('mantiene las sesiones que le quedan a un subtema empezado antes del corte', () => {
+    const resultado = recolocarDesde({
+      subtemasOrdenados: [{ id: 's1', duracionSesiones: 2 }, { id: 's2', duracionSesiones: 1 }],
+      sesiones: [
+        { id: 'a', franjaId: 'f1', fecha: '2026-10-05', estado: 'confirmada' },
+        { id: 'b', franjaId: 'f1', fecha: '2026-10-12', estado: 'confirmada' },
+        { id: 'c', franjaId: 'f1', fecha: '2026-10-19', estado: 'confirmada' }
+      ],
+      enlaces: [
+        { sesionId: 'a', subtemaId: 's1' },
+        { sesionId: 'b', subtemaId: 's1' },
+        { sesionId: 'c', subtemaId: 's2' }
+      ],
+      franjas: [{ franjaId: 'f1', diaSemana: 'lunes', horaInicio: '09:00' }],
+      fechaCorte: '2026-10-12',
+      fechaFin: '2026-10-26',
+      festivos: []
+    })
+
+    expect(resultado.sesionesNuevas.map(s => [s.fecha, s.subtemas[0]!.subtemaId])).toEqual([
+      ['2026-10-12', 's1'],
+      ['2026-10-19', 's2']
+    ])
   })
 })

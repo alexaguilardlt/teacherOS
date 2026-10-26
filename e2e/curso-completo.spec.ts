@@ -24,7 +24,7 @@ test.afterEach(async () => {
 test('crear un curso con horario reducido+normal, generar reparto y verlo en el dashboard', async ({ page }) => {
   // Recorre el asistente entero, genera el reparto y edita el temario: no
   // cabe en los 30 s por defecto.
-  test.setTimeout(90_000)
+  test.setTimeout(120_000)
   await login(page)
 
   await gotoReady(page, '/curso/nuevo')
@@ -128,6 +128,7 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   // subtema se actualiza (mismo id) en vez de borrarse y recrearse.
   await page.getByRole('link', { name: nombreAsignatura, exact: true }).click()
   await page.waitForURL(/\/asignaturas\//)
+  const urlAsignatura = page.url()
   await page.getByLabel('Punto del tema', { exact: true }).fill('Fracciones y decimales')
   await page.getByRole('button', { name: 'Guardar cambios' }).click()
   await page.waitForURL('/dashboard')
@@ -137,4 +138,21 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   await gotoReady(page, urlReparto)
   await expect(page.getByText('Fracciones y decimales').first()).toBeVisible()
   await expect(page.getByText('Examen parcial').first()).toBeVisible()
+
+  // Las sesiones de este curso de prueba caen en septiembre de 2026: a partir
+  // de entonces, lo ya dado no se puede borrar del temario.
+  await gotoReady(page, urlAsignatura)
+  await expect(page.getByRole('button', { name: /^Ya se dio el 12\/09\/2026/ }).first()).toBeDisabled()
+
+  // Añadir un punto a un temario ya repartido enseña cómo quedará el reparto
+  // y, al confirmar, el punto nuevo entra en las sesiones a partir de hoy.
+  await page.getByRole('button', { name: 'Añadir punto del tema' }).click()
+  await page.getByLabel('Punto del tema', { exact: true }).last().fill('Porcentajes')
+  await page.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByText('Esta asignatura ya está repartida.')).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar y recolocar' }).click()
+  await page.waitForURL('/dashboard')
+
+  await gotoReady(page, urlReparto)
+  await expect(page.getByText('Porcentajes').first()).toBeVisible()
 })
