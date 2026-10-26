@@ -367,6 +367,20 @@ export type Database = {
         Args: { recolocaciones: Json, festivo?: Json }
         Returns: number
       }
+      guardar_grupo: {
+        Args: {
+          p_grupo_id: string
+          p_curso_id: string
+          p_nombre: string
+          p_color: string
+          p_grupo_asignaturas_nuevas: Json
+          p_franjas: Json
+          p_franja_ids_a_borrar: string[]
+          p_grupo_asignatura_ids_a_borrar: string[]
+          p_recolocaciones?: Json
+        }
+        Returns: undefined
+      }
       guardar_temario: {
         Args: {
           p_asignatura_id: string

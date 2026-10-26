@@ -1,5 +1,6 @@
 import type { SeleccionAsignatura } from '../composables/useSeleccionAsignaturas'
 import type { DiaSemana } from '../stores/cursoWizard.types'
+import type { RecolocacionJson } from './recolocacion'
 
 export interface FilaGrupoAsignatura {
   id: string
@@ -79,4 +80,31 @@ export function planificarGuardadoGrupo(
     .map(ga => ga.id)
 
   return { grupoAsignaturasNuevas, grupoAsignaturaIdsABorrar, franjas, franjaIdsABorrar, grupoAsignaturaIdsConCambioDeHorario }
+}
+
+// Lo que recibe la función de Postgres guardar_grupo (migración 016), que
+// crea o actualiza el grupo con su horario y recoloca su reparto en una
+// sola transacción.
+export function argumentosGuardarGrupo(
+  grupo: { id: string, cursoId: string, nombre: string, color: string },
+  plan: PlanGuardadoGrupo,
+  recolocaciones: RecolocacionJson[]
+) {
+  return {
+    p_grupo_id: grupo.id,
+    p_curso_id: grupo.cursoId,
+    p_nombre: grupo.nombre,
+    p_color: grupo.color,
+    p_grupo_asignaturas_nuevas: plan.grupoAsignaturasNuevas.map(ga => ({ id: ga.id, asignatura_id: ga.asignatura_id })),
+    p_franjas: plan.franjas.map(f => ({
+      id: f.id,
+      grupo_asignatura_id: f.grupo_asignatura_id,
+      dia_semana: f.dia_semana,
+      periodo_id: f.periodo_id,
+      propia: f.propia
+    })),
+    p_franja_ids_a_borrar: plan.franjaIdsABorrar,
+    p_grupo_asignatura_ids_a_borrar: plan.grupoAsignaturaIdsABorrar,
+    p_recolocaciones: recolocaciones
+  }
 }

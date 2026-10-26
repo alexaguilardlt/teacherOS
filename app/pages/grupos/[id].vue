@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import type { PreviewGrupoAsignatura } from '~/composables/useRedistribucion'
 import { fechaLocalISO } from '~/utils/fechas'
-import { planificarGuardadoGrupo, type PlanGuardadoGrupo } from '~/utils/grupo'
+import { argumentosGuardarGrupo, planificarGuardadoGrupo, type PlanGuardadoGrupo } from '~/utils/grupo'
 
 const route = useRoute()
 const grupoId = route.params.id as string
 
 const supabase = useSupabaseClient()
-const { previsualizarCambioHorario, aplicarRecolocaciones } = useRedistribucion()
+const { previsualizarCambioHorario } = useRedistribucion()
 
 const { data: grupo } = await useAsyncData(`grupo-${grupoId}`, async () => {
   const { data } = await supabase
@@ -195,6 +195,7 @@ async function guardar() {
     if (previews.length) {
       planPendiente.value = plan
       previewsRecolocacion.value = previews
+      errorRecolocacion.value = ''
       modalRecolocarAbierto.value = true
       return
     }
@@ -212,66 +213,32 @@ function nombreAsignatura(asignaturaId: string) {
 }
 
 const recolocando = ref(false)
+const errorRecolocacion = ref('')
 
 async function confirmarRecolocacion() {
   if (!planPendiente.value) return
   recolocando.value = true
+  errorRecolocacion.value = ''
   try {
     await guardarGrupo(planPendiente.value, previewsRecolocacion.value)
   } catch (e) {
-    // La vista previa se calculó con las sesiones de antes: si algo se llegó
-    // a aplicar, ya no vale. Hay que volver a pulsar Guardar para recalcularla.
-    modalRecolocarAbierto.value = false
-    planPendiente.value = null
-    errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+    // Si falla no se ha guardado nada: la vista previa sigue valiendo y se
+    // puede reintentar desde aquí mismo.
+    errorRecolocacion.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
   } finally {
     recolocando.value = false
   }
 }
 
+// Todo en una transacción (función de Postgres guardar_grupo, migración
+// 016): o se guardan el grupo, su horario y su reparto recolocado, o nada.
 async function guardarGrupo(plan: PlanGuardadoGrupo, previews: PreviewGrupoAsignatura[]) {
-  try {
-    const { error: errorGrupo } = await supabase
-      .from('grupos')
-      .update({ nombre: nombre.value, color: color.value })
-      .eq('id', grupoId)
-    if (errorGrupo) throw errorGrupo
-
-    if (plan.grupoAsignaturasNuevas.length) {
-      const { error } = await supabase.from('grupo_asignaturas').insert(plan.grupoAsignaturasNuevas)
-      if (error) throw error
-    }
-
-    // Las franjas quitadas van antes que las demás para que no choquen con
-    // una nueva en el mismo hueco (aviso de solape). Solo pueden tener
-    // sesiones futuras, y esas se vuelven a crear al recolocar: si algo falla
-    // a mitad, volver a guardar las recalcula.
-    if (plan.franjaIdsABorrar.length) {
-      const { error } = await supabase.from('franjas_horarias').delete().in('id', plan.franjaIdsABorrar)
-      if (error) throw error
-    }
-
-    if (plan.franjas.length) {
-      const { error } = await supabase.from('franjas_horarias').upsert(plan.franjas)
-      if (error) throw error
-    }
-
-    if (previews.length) {
-      await aplicarRecolocaciones(previews)
-    }
-
-    if (plan.grupoAsignaturaIdsABorrar.length) {
-      const { error } = await supabase.from('grupo_asignaturas').delete().in('id', plan.grupoAsignaturaIdsABorrar)
-      if (error) throw error
-    }
-  } catch (e) {
-    // Lo que sí llegó a guardarse pasa a contar como existente al reintentar.
-    // Van en orden: cada una se pide a partir de la anterior.
-    await refreshNuxtData(`grupo-${grupoId}-grupo-asignaturas`)
-    await refreshNuxtData(`grupo-${grupoId}-franjas`)
-    await refreshNuxtData(`grupo-${grupoId}-sesiones`)
-    throw e
-  }
+  const { error } = await supabase.rpc('guardar_grupo', argumentosGuardarGrupo(
+    { id: grupoId, cursoId: grupo.value!.curso_id, nombre: nombre.value, color: color.value },
+    plan,
+    recolocacionesConfirmadas(previews)
+  ))
+  if (error) throw error
 
   await navigateTo('/dashboard')
 }
@@ -482,6 +449,12 @@ async function eliminarGrupo() {
             Las sesiones anteriores y las ya impartidas no se tocan.
           </p>
           <ResumenRedistribucion :previews="previewsRecolocacion" />
+          <UAlert
+            v-if="errorRecolocacion"
+            color="error"
+            variant="subtle"
+            :title="errorRecolocacion"
+          />
         </div>
       </template>
 

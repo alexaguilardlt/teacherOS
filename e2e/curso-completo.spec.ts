@@ -183,4 +183,19 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   await page.waitForURL('/dashboard')
   await gotoReady(page, urlReparto)
   await expect(page.getByText('Porcentajes').first()).toBeVisible()
+
+  // Crear un grupo nuevo desde fuera del asistente (el curso de la prueba es
+  // el más reciente, así que es el que viene elegido).
+  const nombreGrupoNuevo = `${nombreGrupo} bis`
+  await gotoReady(page, '/grupos/nuevo')
+  await page.getByLabel('Nombre del grupo').fill(nombreGrupoNuevo)
+  await page.getByRole('checkbox', { name: nombreAsignatura }).check()
+  await page.getByRole('button', { name: 'Añadir franja horaria' }).click()
+  await page.getByLabel('Día').last().click()
+  await page.getByRole('option', { name: 'Domingo' }).click()
+  await page.getByLabel('Franja horaria', { exact: true }).last().click()
+  await page.getByRole('option', { name: /^Reducido: 06:00/ }).click()
+  await page.getByRole('button', { name: 'Crear grupo' }).click()
+  await page.waitForURL('/dashboard')
+  await expect(page.getByRole('link', { name: nombreGrupoNuevo, exact: true })).toBeVisible()
 })
