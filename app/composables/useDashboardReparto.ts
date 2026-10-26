@@ -225,7 +225,7 @@ export function useDashboardReparto() {
   // ordenado por creado_en desc).
   watch(cursos, (lista) => {
     if (cursoSeleccionadoId.value && lista?.some(c => c.id === cursoSeleccionadoId.value)) return
-    const hoy = new Date().toISOString().slice(0, 10)
+    const hoy = fechaLocalISO()
     const vigenteHoy = lista?.find(c => hoy >= c.fecha_inicio && hoy <= c.fecha_fin)
     cursoSeleccionadoId.value = vigenteHoy?.id ?? lista?.[0]?.id ?? ''
   }, { immediate: true })
@@ -420,7 +420,7 @@ export function useDashboardReparto() {
   const horarioTipoSeleccionadoId = ref('')
   watch(horariosTipoDelCurso, (lista) => {
     if (horarioTipoSeleccionadoId.value && lista?.some(ht => ht.id === horarioTipoSeleccionadoId.value)) return
-    const hoy = new Date().toISOString().slice(0, 10)
+    const hoy = fechaLocalISO()
     const vigenteHoy = lista?.find(ht =>
       !ht.vigencias.length || ht.vigencias.some(v => hoy >= v.fecha_inicio && hoy <= v.fecha_fin)
     )

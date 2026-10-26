@@ -769,29 +769,10 @@ async function onConfirmarRedistribucion() {
             >
               Ninguna asignatura tiene sesiones futuras que reorganizar a partir de esa fecha.
             </p>
-            <div
+            <ResumenRedistribucion
               v-else
-              class="flex flex-col gap-3"
-            >
-              <div
-                v-for="preview in previews"
-                :key="preview.grupoAsignaturaId"
-                class="rounded-lg border border-default p-3 text-sm"
-              >
-                <p class="font-medium">
-                  {{ preview.asignaturaNombre }} · {{ preview.grupoNombre }}
-                </p>
-                <p class="text-muted">
-                  {{ preview.sesionesAEliminarIds.length }} sesiones futuras se reorganizan en {{ preview.sesionesNuevas.length }} nuevas sesiones.
-                </p>
-                <p
-                  v-if="preview.subtemasNoAsignados.length"
-                  class="text-error"
-                >
-                  No caben en lo que queda de curso: {{ preview.subtemasNoAsignados.join(', ') }}.
-                </p>
-              </div>
-            </div>
+              :previews="previews"
+            />
           </div>
         </div>
       </template>

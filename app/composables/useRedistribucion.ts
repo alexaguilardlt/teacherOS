@@ -1,9 +1,11 @@
-import type { Bloque } from '~/utils/repartoAlgoritmo'
+import type { RangoFecha, SesionRecolocada } from '~/utils/repartoAlgoritmo'
 
-export interface SesionPropuesta {
-  franjaId: string
-  fecha: string
-  subtemas: { subtemaId: string, fraccion: number }[]
+export type SesionPropuesta = SesionRecolocada
+
+export interface SubtemaParaRecolocar {
+  id: string
+  nombre: string
+  duracionSesiones: number
 }
 
 export interface PreviewGrupoAsignatura {
@@ -78,45 +80,56 @@ export function useRedistribucion() {
     ga: { id: string, grupo_id: string, asignatura_id: string },
     cursoFechaFin: string,
     nuevoFestivo: { fechaInicio: string, fechaFin: string },
-    festivosRangos: { inicio: string, fin: string }[]
+    festivosRangos: RangoFecha[]
   ): Promise<PreviewGrupoAsignatura | null> {
-    const fechaCorte = nuevoFestivo.fechaInicio
-
-    const { data: franjas } = await supabase
-      .from('franjas_horarias')
-      .select('id, dia_semana, periodo_id')
-      .eq('grupo_asignatura_id', ga.id)
-    if (!franjas?.length) return null
-
-    const franjaIds = franjas.map(f => f.id)
-    const { data: sesiones } = await supabase
-      .from('sesiones')
-      .select('id, fecha, estado, franja_horaria_id')
-      .in('franja_horaria_id', franjaIds)
-    if (!sesiones?.length) return null
+    const datos = await cargarSesionesYFranjas(ga.id)
+    if (!datos) return null
 
     // Solo afecta a esta asignatura-grupo si de verdad tenía clase alguno de
     // los días que se marcan como no lectivos; si no coincide con su horario,
     // no hay nada que reorganizar.
-    const tieneSesionEnFestivo = sesiones.some(
+    const tieneSesionEnFestivo = datos.sesiones.some(
       s => s.fecha >= nuevoFestivo.fechaInicio && s.fecha <= nuevoFestivo.fechaFin && s.estado !== 'impartida'
     )
     if (!tieneSesionEnFestivo) return null
 
-    const sesionesFuturas = sesiones.filter(s => s.fecha >= fechaCorte && s.estado !== 'impartida')
-    const sesionesFijasIds = sesiones.filter(s => !sesionesFuturas.includes(s)).map(s => s.id)
-    const sesionIds = sesiones.map(s => s.id)
+    return calcularRecolocacion(ga, datos, {
+      fechaCorte: nuevoFestivo.fechaInicio,
+      fechaFin: cursoFechaFin,
+      festivos: festivosRangos
+    })
+  }
+
+  async function cargarSesionesYFranjas(grupoAsignaturaId: string) {
+    const { data: franjas } = await supabase
+      .from('franjas_horarias')
+      .select('id, dia_semana, periodo_id')
+      .eq('grupo_asignatura_id', grupoAsignaturaId)
+    if (!franjas?.length) return null
+
+    const { data: sesiones } = await supabase
+      .from('sesiones')
+      .select('id, fecha, estado, franja_horaria_id')
+      .in('franja_horaria_id', franjas.map(f => f.id))
+    if (!sesiones?.length) return null
+
+    return { franjas, sesiones }
+  }
+
+  // Recalcula el reparto de una asignatura-grupo desde `fechaCorte` (ver
+  // recolocarDesde). `subtemas` permite previsualizar con un temario que
+  // todavía no se ha guardado; si no se pasa, se usa el de la base de datos.
+  async function calcularRecolocacion(
+    ga: { id: string, asignatura_id: string },
+    datos: NonNullable<Awaited<ReturnType<typeof cargarSesionesYFranjas>>>,
+    opciones: { fechaCorte: string, fechaFin: string, festivos: RangoFecha[], subtemas?: SubtemaParaRecolocar[] }
+  ): Promise<PreviewGrupoAsignatura> {
+    const { franjas, sesiones } = datos
 
     const { data: sesionSubtemas } = await supabase
       .from('sesion_subtemas')
-      .select('sesion_id, subtema_id, fraccion')
-      .in('sesion_id', sesionIds)
-
-    const subtemaIdsEntregados = new Set(
-      (sesionSubtemas ?? [])
-        .filter(ss => sesionesFijasIds.includes(ss.sesion_id))
-        .map(ss => ss.subtema_id)
-    )
+      .select('sesion_id, subtema_id')
+      .in('sesion_id', sesiones.map(s => s.id))
 
     const periodoIds = franjas.map(f => f.periodo_id)
     const { data: periodos } = await supabase
@@ -130,31 +143,22 @@ export function useRedistribucion() {
       .from('horario_tipo_vigencias')
       .select('horario_tipo_id, fecha_inicio, fecha_fin')
       .in('horario_tipo_id', horarioTipoIds)
-    const vigenciasPorHorarioTipoId = new Map<string, { inicio: string, fin: string }[]>()
+    const vigenciasPorHorarioTipoId = new Map<string, RangoFecha[]>()
     for (const v of vigencias ?? []) {
       const lista = vigenciasPorHorarioTipoId.get(v.horario_tipo_id) ?? []
       lista.push({ inicio: v.fecha_inicio, fin: v.fecha_fin })
       vigenciasPorHorarioTipoId.set(v.horario_tipo_id, lista)
     }
 
-    const { data: subtemasOrdenados } = await supabase
-      .from('subtemas')
-      .select('id, nombre, duracion_sesiones')
-      .eq('asignatura_id', ga.asignatura_id)
-      .order('orden', { ascending: true })
-    if (!subtemasOrdenados || !subtemasOrdenados.length) return null
-
-    // Se reconstruyen los bloques exactamente como en el reparto original
-    // (mismo temario, mismas duraciones) para que el emparejamiento de
-    // subtemas de 0.5 sesiones no cambie; luego se separan en
-    // entregados/pendientes según si ya se dio alguna sesión de ese bloque
-    // antes del corte.
-    const bloques = agruparEnBloques(
-      subtemasOrdenados.map(s => ({ id: s.id, duracionSesiones: Number(s.duracion_sesiones) }))
-    )
-    const bloquesPendientes = bloques.filter(
-      (bloque: Bloque) => !bloque.subtemaIds.every(id => subtemaIdsEntregados.has(id))
-    )
+    let subtemas = opciones.subtemas
+    if (!subtemas) {
+      const { data } = await supabase
+        .from('subtemas')
+        .select('id, nombre, duracion_sesiones')
+        .eq('asignatura_id', ga.asignatura_id)
+        .order('orden', { ascending: true })
+      subtemas = (data ?? []).map(s => ({ id: s.id, nombre: s.nombre, duracionSesiones: Number(s.duracion_sesiones) }))
+    }
 
     const franjasParaSlots = franjas
       .map((franja) => {
@@ -169,30 +173,89 @@ export function useRedistribucion() {
       })
       .filter((f): f is NonNullable<typeof f> => f !== null)
 
-    const slots = construirSlots(franjasParaSlots, fechaCorte, cursoFechaFin, festivosRangos)
+    const resultado = recolocarDesde({
+      subtemasOrdenados: subtemas,
+      sesiones: sesiones.map(s => ({ id: s.id, franjaId: s.franja_horaria_id, fecha: s.fecha, estado: s.estado })),
+      enlaces: (sesionSubtemas ?? []).map(ss => ({ sesionId: ss.sesion_id, subtemaId: ss.subtema_id })),
+      franjas: franjasParaSlots,
+      fechaCorte: opciones.fechaCorte,
+      fechaFin: opciones.fechaFin,
+      festivos: opciones.festivos
+    })
 
-    const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloquesPendientes, slots)
-
-    const sesionesPorClave = new Map<string, SesionPropuesta>()
-    for (const a of asignaciones) {
-      const clave = `${a.slot.franjaId}__${a.slot.fecha}`
-      if (!sesionesPorClave.has(clave)) {
-        sesionesPorClave.set(clave, { franjaId: a.slot.franjaId, fecha: a.slot.fecha, subtemas: [] })
-      }
-      sesionesPorClave.get(clave)!.subtemas.push({ subtemaId: a.subtemaId, fraccion: a.fraccion })
-    }
-
-    const nombrePorId = new Map(subtemasOrdenados.map(s => [s.id, s.nombre]))
-    const subtemasNoAsignados = [...new Set(subtemasNoAsignadosIds)].map(id => nombrePorId.get(id) ?? id)
+    const nombrePorId = new Map(subtemas.map(s => [s.id, s.nombre]))
 
     return {
       grupoAsignaturaId: ga.id,
       grupoNombre: '',
       asignaturaNombre: '',
-      sesionesAEliminarIds: sesionesFuturas.map(s => s.id),
-      sesionesNuevas: [...sesionesPorClave.values()],
-      subtemasNoAsignados
+      sesionesAEliminarIds: resultado.sesionesAEliminarIds,
+      sesionesNuevas: resultado.sesionesNuevas,
+      subtemasNoAsignados: resultado.subtemasNoAsignadosIds.map(id => nombrePorId.get(id) ?? id)
     }
+  }
+
+  // Cómo quedaría el reparto de cada grupo que tiene esta asignatura si el
+  // temario pasase a ser `subtemas` (aún sin guardar). Se recoloca desde hoy:
+  // lo anterior y lo ya impartido no se toca. Solo devuelve los grupos que
+  // ya tienen sesiones generadas.
+  async function previsualizarCambioTemario(
+    asignaturaId: string,
+    subtemas: SubtemaParaRecolocar[]
+  ): Promise<PreviewGrupoAsignatura[]> {
+    const { data: grupoAsignaturas } = await supabase
+      .from('grupo_asignaturas')
+      .select('id, grupo_id, asignatura_id')
+      .eq('asignatura_id', asignaturaId)
+    if (!grupoAsignaturas?.length) return []
+
+    const { data: grupos } = await supabase
+      .from('grupos')
+      .select('id, nombre, curso_id')
+      .in('id', grupoAsignaturas.map(ga => ga.grupo_id))
+    const cursoIds = [...new Set((grupos ?? []).map(g => g.curso_id))]
+
+    const { data: cursos } = await supabase
+      .from('cursos')
+      .select('id, fecha_inicio, fecha_fin')
+      .in('id', cursoIds)
+    const { data: festivos } = await supabase
+      .from('dias_no_lectivos')
+      .select('curso_id, fecha_inicio, fecha_fin')
+      .in('curso_id', cursoIds)
+
+    const { data: asignatura } = await supabase
+      .from('asignaturas')
+      .select('nombre')
+      .eq('id', asignaturaId)
+      .single()
+
+    const hoy = fechaLocalISO()
+    const previews: PreviewGrupoAsignatura[] = []
+
+    for (const ga of grupoAsignaturas) {
+      const grupo = grupos?.find(g => g.id === ga.grupo_id)
+      const curso = cursos?.find(c => c.id === grupo?.curso_id)
+      // Un curso ya terminado no tiene nada que recolocar.
+      if (!grupo || !curso || hoy > curso.fecha_fin) continue
+
+      const datos = await cargarSesionesYFranjas(ga.id)
+      if (!datos) continue
+
+      const preview = await calcularRecolocacion(ga, datos, {
+        fechaCorte: hoy > curso.fecha_inicio ? hoy : curso.fecha_inicio,
+        fechaFin: curso.fecha_fin,
+        festivos: (festivos ?? [])
+          .filter(f => f.curso_id === curso.id)
+          .map(f => ({ inicio: f.fecha_inicio, fin: f.fecha_fin })),
+        subtemas
+      })
+      preview.grupoNombre = grupo.nombre
+      preview.asignaturaNombre = asignatura?.nombre ?? ''
+      previews.push(preview)
+    }
+
+    return previews
   }
 
   // Aplica un preview ya calculado: borra las sesiones futuras afectadas y
@@ -301,5 +364,5 @@ export function useRedistribucion() {
     await aplicarPreview(preview)
   }
 
-  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura }
+  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura, previsualizarCambioTemario, aplicarPreview }
 }

@@ -142,3 +142,116 @@ export function repartirBloques(bloques: Bloque[], slots: Slot[]): ResultadoRepa
 
   return { asignaciones, subtemasNoAsignadosIds }
 }
+
+export interface SesionExistente {
+  id: string
+  franjaId: string
+  fecha: string
+  estado: string
+}
+
+export interface EnlaceSesionSubtema {
+  sesionId: string
+  subtemaId: string
+}
+
+export interface SesionRecolocada {
+  franjaId: string
+  fecha: string
+  subtemas: { subtemaId: string, fraccion: number }[]
+}
+
+export interface ResultadoRecolocacion {
+  sesionesAEliminarIds: string[]
+  sesionesNuevas: SesionRecolocada[]
+  subtemasNoAsignadosIds: string[]
+}
+
+// Una sesión ya no se toca si es anterior al corte o si ya se impartió:
+// es historia. Todo lo demás se puede recolocar.
+function esSesionFija(sesion: SesionExistente, fechaCorte: string) {
+  return sesion.fecha < fechaCorte || sesion.estado === 'impartida'
+}
+
+// Recalcula el reparto de una asignatura-grupo a partir de `fechaCorte`: las
+// sesiones fijas se quedan como están, y el temario que aún no se ha dado
+// entero se vuelve a repartir en los huecos que quedan desde el corte. Sirve
+// tanto para un festivo nuevo (el corte es el festivo, que ya va en
+// `festivos`) como para un cambio de temario (el corte es hoy).
+//
+// Los bloques se reconstruyen con el temario completo, igual que en el
+// reparto original, para que el emparejamiento de subtemas de 0.5 sesiones
+// no cambie; un bloque se da por entregado solo si todos sus subtemas
+// aparecen ya en sesiones fijas.
+export function recolocarDesde(params: {
+  subtemasOrdenados: SubtemaParaBloques[]
+  sesiones: SesionExistente[]
+  enlaces: EnlaceSesionSubtema[]
+  franjas: FranjaParaSlots[]
+  fechaCorte: string
+  fechaFin: string
+  festivos: RangoFecha[]
+}): ResultadoRecolocacion {
+  const { subtemasOrdenados, sesiones, enlaces, franjas, fechaCorte, fechaFin, festivos } = params
+
+  const sesionesFijasIds = new Set(sesiones.filter(s => esSesionFija(s, fechaCorte)).map(s => s.id))
+  const subtemaIdsEntregados = new Set(
+    enlaces.filter(e => sesionesFijasIds.has(e.sesionId)).map(e => e.subtemaId)
+  )
+
+  const bloquesPendientes = agruparEnBloques(subtemasOrdenados).filter(
+    bloque => !bloque.subtemaIds.every(id => subtemaIdsEntregados.has(id))
+  )
+
+  // Un hueco ocupado por una sesión fija (ej. la clase de hoy, ya marcada
+  // como impartida) no se puede volver a usar.
+  const ocupados = new Set(
+    sesiones.filter(s => sesionesFijasIds.has(s.id)).map(s => `${s.franjaId}__${s.fecha}`)
+  )
+  const slots = construirSlots(franjas, fechaCorte, fechaFin, festivos)
+    .filter(slot => !ocupados.has(`${slot.franjaId}__${slot.fecha}`))
+  const { asignaciones, subtemasNoAsignadosIds } = repartirBloques(bloquesPendientes, slots)
+
+  const sesionesPorClave = new Map<string, SesionRecolocada>()
+  for (const a of asignaciones) {
+    const clave = `${a.slot.franjaId}__${a.slot.fecha}`
+    if (!sesionesPorClave.has(clave)) {
+      sesionesPorClave.set(clave, { franjaId: a.slot.franjaId, fecha: a.slot.fecha, subtemas: [] })
+    }
+    sesionesPorClave.get(clave)!.subtemas.push({ subtemaId: a.subtemaId, fraccion: a.fraccion })
+  }
+
+  return {
+    sesionesAEliminarIds: sesiones.filter(s => !sesionesFijasIds.has(s.id)).map(s => s.id),
+    sesionesNuevas: [...sesionesPorClave.values()],
+    subtemasNoAsignadosIds: [...new Set(subtemasNoAsignadosIds)]
+  }
+}
+
+// Subtemas que ya se han dado (aparecen en alguna sesión fija respecto a
+// `hoy`), con la primera fecha en que se dieron. No se pueden borrar del
+// temario: lo pasado es historia y esas sesiones se quedarían vacías.
+export function subtemasYaDados(
+  sesiones: SesionExistente[],
+  enlaces: EnlaceSesionSubtema[],
+  hoy: string
+): Map<string, string> {
+  const fechaPorSesionFija = new Map(
+    sesiones.filter(s => esSesionFija(s, hoy)).map(s => [s.id, s.fecha])
+  )
+  const dados = new Map<string, string>()
+  for (const enlace of enlaces) {
+    const fecha = fechaPorSesionFija.get(enlace.sesionId)
+    if (!fecha) continue
+    const anterior = dados.get(enlace.subtemaId)
+    if (!anterior || fecha < anterior) dados.set(enlace.subtemaId, fecha)
+  }
+  return dados
+}
+
+// El reparto solo depende de qué subtemas hay, en qué orden y cuánto dura
+// cada uno: cambiar un nombre no obliga a recolocar nada.
+export function temarioAfectaAlReparto(antes: SubtemaParaBloques[], despues: SubtemaParaBloques[]): boolean {
+  if (antes.length !== despues.length) return true
+  return antes.some((s, i) => s.id !== despues[i]!.id || s.duracionSesiones !== despues[i]!.duracionSesiones)
+}
