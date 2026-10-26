@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agruparEnBloques, construirSlots, estaEnFestivo, recolocarDesde, repartirBloques, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
+import { agruparEnBloques, construirSlots, estaEnFestivo, recolocacionSinCambios, recolocarDesde, repartirBloques, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
 
 describe('estaEnFestivo', () => {
   it('detecta una fecha dentro del rango, incluyendo los extremos', () => {
@@ -372,5 +372,26 @@ describe('recolocarDesde con un subtema a medias', () => {
       ['2026-10-12', 's1'],
       ['2026-10-19', 's2']
     ])
+  })
+})
+
+describe('recolocacionSinCambios', () => {
+  const franjas = [{ franjaId: 'f1', diaSemana: 'lunes' as const, horaInicio: '09:00' }]
+  const sesiones = [
+    { id: 'a', franjaId: 'f1', fecha: '2026-10-12', estado: 'confirmada' },
+    { id: 'b', franjaId: 'f1', fecha: '2026-10-19', estado: 'confirmada' }
+  ]
+  const enlaces = [{ sesionId: 'a', subtemaId: 's1' }, { sesionId: 'b', subtemaId: 's2' }]
+  const subtemasOrdenados = [{ id: 's1', duracionSesiones: 1 }, { id: 's2', duracionSesiones: 1 }]
+  const base = { subtemasOrdenados, sesiones, enlaces, franjas, fechaCorte: '2026-10-12', fechaFin: '2026-10-26' }
+
+  it('detecta que recolocar con el mismo calendario no cambia nada', () => {
+    const resultado = recolocarDesde({ ...base, festivos: [] })
+    expect(recolocacionSinCambios(resultado, sesiones, enlaces)).toBe(true)
+  })
+
+  it('detecta que un festivo en un día con clase sí cambia algo', () => {
+    const resultado = recolocarDesde({ ...base, festivos: [{ inicio: '2026-10-12', fin: '2026-10-12' }] })
+    expect(recolocacionSinCambios(resultado, sesiones, enlaces)).toBe(false)
   })
 })

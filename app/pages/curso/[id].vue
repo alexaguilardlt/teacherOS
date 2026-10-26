@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import type { PreviewGrupoAsignatura } from '~/composables/useRedistribucion'
+import { calendarioAfectaAlReparto, festivosARangos, planificarGuardadoCurso, vigenciasPorHorarioTipo, type PlanGuardadoCurso } from '~/utils/curso'
+
 const route = useRoute()
 const cursoId = route.params.id as string
 
 const supabase = useSupabaseClient()
+const { previsualizarCambioCurso } = useRedistribucion()
 
 const { data: curso } = await useAsyncData(`curso-${cursoId}`, async () => {
   const { data } = await supabase
@@ -56,6 +60,32 @@ const { data: vigenciasIniciales } = await useAsyncData(`curso-${cursoId}-vigenc
   return data ?? []
 })
 
+// Qué grupos usan cada franja horaria: una franja en uso no se puede quitar
+// (se borrarían en cascada las franjas de esos grupos y sus sesiones).
+const { data: franjasEnUso } = await useAsyncData(`curso-${cursoId}-franjas-en-uso`, async () => {
+  const { data: grupos } = await supabase.from('grupos').select('id, nombre').eq('curso_id', cursoId)
+  if (!grupos?.length) return []
+  const { data: grupoAsignaturas } = await supabase
+    .from('grupo_asignaturas')
+    .select('id, grupo_id')
+    .in('grupo_id', grupos.map(g => g.id))
+  if (!grupoAsignaturas?.length) return []
+  const { data: franjas } = await supabase
+    .from('franjas_horarias')
+    .select('periodo_id, grupo_asignatura_id')
+    .in('grupo_asignatura_id', grupoAsignaturas.map(ga => ga.id))
+  return (franjas ?? []).map(f => ({
+    periodoId: f.periodo_id,
+    grupo: grupos.find(g => g.id === grupoAsignaturas.find(ga => ga.id === f.grupo_asignatura_id)?.grupo_id)?.nombre ?? ''
+  }))
+})
+
+function motivoEnUso(periodoIds: string[]) {
+  const grupos = [...new Set((franjasEnUso.value ?? []).filter(f => periodoIds.includes(f.periodoId)).map(f => f.grupo))].sort()
+  if (!grupos.length) return undefined
+  return `La usan ${grupos.join(', ')}: quítala antes de sus horarios.`
+}
+
 const state = reactive({
   nombre: curso.value.nombre,
   fechaInicio: curso.value.fecha_inicio,
@@ -77,55 +107,38 @@ function eliminarFestivo(clienteId: string) {
   festivos.value = festivos.value.filter(festivo => festivo.clienteId !== clienteId)
 }
 
+// Lo que ya existe usa su id de la base de datos como clienteId: al guardar
+// se actualiza en vez de borrarse y recrearse.
 const horariosTipo = ref((horariosTipoIniciales.value ?? []).map(ht => ({
-  id: ht.id as string | null,
-  clienteId: crypto.randomUUID(),
+  clienteId: ht.id,
   nombre: ht.nombre,
   vigencias: (vigenciasIniciales.value ?? [])
     .filter(v => v.horario_tipo_id === ht.id)
-    .map(v => ({
-      id: v.id as string | null,
-      clienteId: crypto.randomUUID(),
-      fechaInicio: v.fecha_inicio,
-      fechaFin: v.fecha_fin
-    })),
+    .map(v => ({ clienteId: v.id, fechaInicio: v.fecha_inicio, fechaFin: v.fecha_fin })),
   periodos: (periodosIniciales.value ?? [])
     .filter(periodo => periodo.horario_tipo_id === ht.id)
-    .map(periodo => ({
-      id: periodo.id as string | null,
-      clienteId: crypto.randomUUID(),
-      horaInicio: periodo.hora_inicio,
-      horaFin: periodo.hora_fin
-    }))
+    .map(periodo => ({ clienteId: periodo.id, horaInicio: periodo.hora_inicio, horaFin: periodo.hora_fin }))
 })))
 
 function agregarHorarioTipo() {
-  horariosTipo.value.push({
-    id: null,
-    clienteId: crypto.randomUUID(),
-    nombre: '',
-    vigencias: [],
-    periodos: []
-  })
+  horariosTipo.value.push({ clienteId: crypto.randomUUID(), nombre: '', vigencias: [], periodos: [] })
 }
 
 function eliminarHorarioTipo(clienteId: string) {
   horariosTipo.value = horariosTipo.value.filter(ht => ht.clienteId !== clienteId)
 }
 
-// Copia las franjas horarias a un horario tipo nuevo (sin id ni vigencias),
-// por si el profesor prefiere seguir usando horarios separados para épocas
+// Copia las franjas horarias a un horario tipo nuevo (sin vigencias), por si
+// el profesor prefiere seguir usando horarios separados para épocas
 // distintas en vez de añadir varios tramos al mismo horario.
 function duplicarHorarioTipo(clienteId: string) {
   const original = horariosTipo.value.find(ht => ht.clienteId === clienteId)
   if (!original) return
   horariosTipo.value.push({
-    id: null,
     clienteId: crypto.randomUUID(),
     nombre: `${original.nombre} (copia)`,
     vigencias: [],
     periodos: original.periodos.map(periodo => ({
-      id: null,
       clienteId: crypto.randomUUID(),
       horaInicio: periodo.horaInicio,
       horaFin: periodo.horaFin
@@ -135,7 +148,7 @@ function duplicarHorarioTipo(clienteId: string) {
 
 function agregarVigencia(horarioTipoClienteId: string) {
   const ht = horariosTipo.value.find(h => h.clienteId === horarioTipoClienteId)
-  ht?.vigencias.push({ id: null, clienteId: crypto.randomUUID(), fechaInicio: '', fechaFin: '' })
+  ht?.vigencias.push({ clienteId: crypto.randomUUID(), fechaInicio: '', fechaFin: '' })
 }
 
 function eliminarVigencia(horarioTipoClienteId: string, vigenciaClienteId: string) {
@@ -146,7 +159,7 @@ function eliminarVigencia(horarioTipoClienteId: string, vigenciaClienteId: strin
 
 function agregarPeriodo(horarioTipoClienteId: string) {
   const ht = horariosTipo.value.find(h => h.clienteId === horarioTipoClienteId)
-  ht?.periodos.push({ id: null, clienteId: crypto.randomUUID(), horaInicio: '', horaFin: '' })
+  ht?.periodos.push({ clienteId: crypto.randomUUID(), horaInicio: '', horaFin: '' })
 }
 
 function eliminarPeriodo(horarioTipoClienteId: string, periodoClienteId: string) {
@@ -174,151 +187,103 @@ const festivosValidos = computed(() =>
 const guardando = ref(false)
 const errorMessage = ref('')
 
+// Si cambian fechas, festivos o vigencias y eso mueve algún reparto ya
+// generado, antes de guardar se enseña cómo quedarían las sesiones a partir
+// de hoy, y el curso y el reparto se guardan juntos.
+const planPendiente = ref<PlanGuardadoCurso | null>(null)
+const previewsRecolocacion = ref<PreviewGrupoAsignatura[]>([])
+const modalRecolocarAbierto = ref(false)
+const recolocando = ref(false)
+const errorRecolocacion = ref('')
+
 async function guardar() {
   guardando.value = true
   errorMessage.value = ''
 
   try {
-    const { error: errorCurso } = await supabase
-      .from('cursos')
-      .update({
-        nombre: state.nombre,
-        fecha_inicio: state.fechaInicio,
-        fecha_fin: state.fechaFin
-      })
-      .eq('id', cursoId)
-    if (errorCurso) throw errorCurso
+    const plan = planificarGuardadoCurso(horariosTipo.value, {
+      horarioTipoIds: (horariosTipoIniciales.value ?? []).map(ht => ht.id),
+      vigenciaIds: (vigenciasIniciales.value ?? []).map(v => v.id),
+      periodoIds: (periodosIniciales.value ?? []).map(p => p.id)
+    })
 
-    const { error: errorBorrar } = await supabase
-      .from('dias_no_lectivos')
-      .delete()
-      .eq('curso_id', cursoId)
-    if (errorBorrar) throw errorBorrar
+    const periodosQuitados = [
+      ...plan.periodoIdsABorrar,
+      ...(periodosIniciales.value ?? []).filter(p => plan.horarioTipoIdsABorrar.includes(p.horario_tipo_id)).map(p => p.id)
+    ]
+    const enUso = motivoEnUso(periodosQuitados)
+    if (enUso) throw new Error(`No se puede quitar una franja horaria que usan grupos. ${enUso}`)
 
-    if (festivos.value.length) {
-      const { error: errorFestivos } = await supabase
-        .from('dias_no_lectivos')
-        .insert(festivos.value.map(festivo => ({
-          curso_id: cursoId,
-          nombre: festivo.nombre || null,
-          fecha_inicio: festivo.fechaInicio,
-          fecha_fin: festivo.fechaFin || festivo.fechaInicio
-        })))
-      if (errorFestivos) throw errorFestivos
+    const antes = {
+      fechaInicio: curso.value!.fecha_inicio,
+      fechaFin: curso.value!.fecha_fin,
+      festivos: festivosARangos((festivosIniciales.value ?? []).map(f => ({ fechaInicio: f.fecha_inicio, fechaFin: f.fecha_fin }))),
+      vigencias: vigenciasPorHorarioTipo(vigenciasIniciales.value ?? [])
     }
-
-    // Los horarios tipo y sus períodos se actualizan en vez de
-    // borrar-y-recrear: si se recreasen con un id nuevo, los grupos
-    // que ya siguen ese horario, o las franjas que ya usan ese
-    // período (FKs con ON DELETE CASCADE / SET NULL), se romperían.
-    const idsOriginalesHT = new Set((horariosTipoIniciales.value ?? []).map(ht => ht.id))
-    const idsActualesHT = new Set(horariosTipo.value.filter(ht => ht.id).map(ht => ht.id as string))
-    const idsAEliminarHT = [...idsOriginalesHT].filter(id => !idsActualesHT.has(id))
-
-    if (idsAEliminarHT.length) {
-      const { error: errorEliminarHT } = await supabase
-        .from('horarios_tipo')
-        .delete()
-        .in('id', idsAEliminarHT)
-      if (errorEliminarHT) throw errorEliminarHT
+    const despues = {
+      fechaInicio: state.fechaInicio,
+      fechaFin: state.fechaFin,
+      festivos: festivosARangos(festivos.value),
+      vigencias: vigenciasPorHorarioTipo(plan.vigencias)
     }
-
-    for (const horarioTipo of horariosTipo.value) {
-      let horarioTipoId = horarioTipo.id
-
-      if (horarioTipoId) {
-        const { error: errorActualizarHT } = await supabase
-          .from('horarios_tipo')
-          .update({ nombre: horarioTipo.nombre })
-          .eq('id', horarioTipoId)
-        if (errorActualizarHT) throw errorActualizarHT
-      } else {
-        const { data: htInsertado, error: errorNuevoHT } = await supabase
-          .from('horarios_tipo')
-          .insert({
-            curso_id: cursoId,
-            nombre: horarioTipo.nombre
-          })
-          .select('id')
-          .single()
-        if (errorNuevoHT || !htInsertado) throw errorNuevoHT ?? new Error('horario_tipo')
-        horarioTipoId = htInsertado.id
-      }
-
-      const idsOriginalesV = new Set(
-        (vigenciasIniciales.value ?? []).filter(v => v.horario_tipo_id === horarioTipo.id).map(v => v.id)
-      )
-      const idsActualesV = new Set(horarioTipo.vigencias.filter(v => v.id).map(v => v.id as string))
-      const idsAEliminarV = [...idsOriginalesV].filter(id => !idsActualesV.has(id))
-
-      if (idsAEliminarV.length) {
-        const { error: errorEliminarV } = await supabase
-          .from('horario_tipo_vigencias')
-          .delete()
-          .in('id', idsAEliminarV)
-        if (errorEliminarV) throw errorEliminarV
-      }
-
-      for (const vigencia of horarioTipo.vigencias) {
-        if (vigencia.id) {
-          const { error: errorActualizarVigencia } = await supabase
-            .from('horario_tipo_vigencias')
-            .update({ fecha_inicio: vigencia.fechaInicio, fecha_fin: vigencia.fechaFin })
-            .eq('id', vigencia.id)
-          if (errorActualizarVigencia) throw errorActualizarVigencia
-        } else {
-          const { error: errorNuevaVigencia } = await supabase
-            .from('horario_tipo_vigencias')
-            .insert({
-              horario_tipo_id: horarioTipoId,
-              fecha_inicio: vigencia.fechaInicio,
-              fecha_fin: vigencia.fechaFin
-            })
-          if (errorNuevaVigencia) throw errorNuevaVigencia
-        }
-      }
-
-      const idsOriginalesP = new Set(
-        (periodosIniciales.value ?? []).filter(p => p.horario_tipo_id === horarioTipo.id).map(p => p.id)
-      )
-      const idsActualesP = new Set(horarioTipo.periodos.filter(p => p.id).map(p => p.id as string))
-      const idsAEliminarP = [...idsOriginalesP].filter(id => !idsActualesP.has(id))
-
-      if (idsAEliminarP.length) {
-        const { error: errorEliminarP } = await supabase
-          .from('periodos_horarios')
-          .delete()
-          .in('id', idsAEliminarP)
-        if (errorEliminarP) throw errorEliminarP
-      }
-
-      for (const [periodoIndex, periodo] of horarioTipo.periodos.entries()) {
-        if (periodo.id) {
-          const { error: errorActualizarPeriodo } = await supabase
-            .from('periodos_horarios')
-            .update({ hora_inicio: periodo.horaInicio, hora_fin: periodo.horaFin, orden: periodoIndex })
-            .eq('id', periodo.id)
-          if (errorActualizarPeriodo) throw errorActualizarPeriodo
-        } else {
-          const { error: errorNuevoPeriodo } = await supabase
-            .from('periodos_horarios')
-            .insert({
-              horario_tipo_id: horarioTipoId,
-              hora_inicio: periodo.horaInicio,
-              hora_fin: periodo.horaFin,
-              orden: periodoIndex
-            })
-          if (errorNuevoPeriodo) throw errorNuevoPeriodo
-        }
+    if (calendarioAfectaAlReparto(antes, despues)) {
+      const previews = await previsualizarCambioCurso(cursoId, despues)
+      if (previews.length) {
+        planPendiente.value = plan
+        previewsRecolocacion.value = previews
+        errorRecolocacion.value = ''
+        modalRecolocarAbierto.value = true
+        return
       }
     }
 
-    await navigateTo('/dashboard')
+    await guardarCurso(plan, [])
   } catch (e) {
     errorMessage.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
   } finally {
     guardando.value = false
   }
+}
+
+async function confirmarRecolocacion() {
+  if (!planPendiente.value) return
+  recolocando.value = true
+  errorRecolocacion.value = ''
+  try {
+    await guardarCurso(planPendiente.value, previewsRecolocacion.value)
+  } catch (e) {
+    // Si falla no se ha guardado nada: la vista previa sigue valiendo y se
+    // puede reintentar desde aquí mismo.
+    errorRecolocacion.value = (e as { message?: string })?.message || 'No se han podido guardar los cambios. Inténtalo de nuevo.'
+  } finally {
+    recolocando.value = false
+  }
+}
+
+// Todo en una transacción (función de Postgres guardar_curso, migración
+// 018): o se guardan el curso, sus horarios y el reparto recolocado, o nada.
+async function guardarCurso(plan: PlanGuardadoCurso, previews: PreviewGrupoAsignatura[]) {
+  const { error } = await supabase.rpc('guardar_curso', {
+    p_curso_id: cursoId,
+    p_nombre: state.nombre,
+    p_fecha_inicio: state.fechaInicio,
+    p_fecha_fin: state.fechaFin,
+    p_festivos: festivosARangos(festivos.value).map((rango, i) => ({
+      nombre: festivos.value[i]!.nombre || null,
+      fecha_inicio: rango.inicio,
+      fecha_fin: rango.fin
+    })),
+    p_horarios_tipo: plan.horarios_tipo,
+    p_vigencias: plan.vigencias.map(v => ({ ...v })),
+    p_periodos: plan.periodos,
+    p_horario_tipo_ids_a_borrar: plan.horarioTipoIdsABorrar,
+    p_vigencia_ids_a_borrar: plan.vigenciaIdsABorrar,
+    p_periodo_ids_a_borrar: plan.periodoIdsABorrar,
+    p_recolocaciones: recolocacionesConfirmadas(previews)
+  })
+  if (error) throw error
+
+  await navigateTo('/dashboard')
 }
 </script>
 
@@ -389,13 +354,19 @@ async function guardar() {
             aria-label="Duplicar horario tipo"
             @click="duplicarHorarioTipo(horarioTipo.clienteId)"
           />
-          <UButton
-            icon="i-lucide-trash-2"
-            color="neutral"
-            variant="ghost"
-            aria-label="Eliminar horario tipo"
-            @click="eliminarHorarioTipo(horarioTipo.clienteId)"
-          />
+          <UTooltip
+            :text="motivoEnUso(horarioTipo.periodos.map(p => p.clienteId))"
+            :disabled="!motivoEnUso(horarioTipo.periodos.map(p => p.clienteId))"
+          >
+            <UButton
+              :icon="motivoEnUso(horarioTipo.periodos.map(p => p.clienteId)) ? 'i-lucide-lock' : 'i-lucide-trash-2'"
+              color="neutral"
+              variant="ghost"
+              :disabled="Boolean(motivoEnUso(horarioTipo.periodos.map(p => p.clienteId)))"
+              :aria-label="motivoEnUso(horarioTipo.periodos.map(p => p.clienteId)) ?? 'Eliminar horario tipo'"
+              @click="eliminarHorarioTipo(horarioTipo.clienteId)"
+            />
+          </UTooltip>
         </div>
 
         <p class="mt-1 text-xs text-muted">
@@ -475,13 +446,19 @@ async function guardar() {
             />
           </UFormField>
 
-          <UButton
-            icon="i-lucide-trash-2"
-            color="neutral"
-            variant="ghost"
-            aria-label="Eliminar franja"
-            @click="eliminarPeriodo(horarioTipo.clienteId, periodo.clienteId)"
-          />
+          <UTooltip
+            :text="motivoEnUso([periodo.clienteId])"
+            :disabled="!motivoEnUso([periodo.clienteId])"
+          >
+            <UButton
+              :icon="motivoEnUso([periodo.clienteId]) ? 'i-lucide-lock' : 'i-lucide-trash-2'"
+              color="neutral"
+              variant="ghost"
+              :disabled="Boolean(motivoEnUso([periodo.clienteId]))"
+              :aria-label="motivoEnUso([periodo.clienteId]) ?? 'Eliminar franja'"
+              @click="eliminarPeriodo(horarioTipo.clienteId, periodo.clienteId)"
+            />
+          </UTooltip>
         </div>
 
         <UButton
@@ -613,5 +590,44 @@ async function guardar() {
         Guardar cambios
       </UButton>
     </div>
+
+    <UModal
+      v-model:open="modalRecolocarAbierto"
+      title="Recolocar el reparto"
+      :dismissible="!recolocando"
+    >
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <p class="text-sm text-muted">
+            El calendario del curso ha cambiado. Con el calendario nuevo, las sesiones quedarán así a partir de hoy.
+            Las sesiones anteriores y las ya impartidas no se tocan.
+          </p>
+          <ResumenRedistribucion :previews="previewsRecolocacion" />
+          <UAlert
+            v-if="errorRecolocacion"
+            color="error"
+            variant="subtle"
+            :title="errorRecolocacion"
+          />
+        </div>
+      </template>
+
+      <template #footer>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          :disabled="recolocando"
+          @click="modalRecolocarAbierto = false"
+        >
+          Seguir editando
+        </UButton>
+        <UButton
+          :loading="recolocando"
+          @click="confirmarRecolocacion"
+        >
+          Guardar y recolocar
+        </UButton>
+      </template>
+    </UModal>
   </UContainer>
 </template>

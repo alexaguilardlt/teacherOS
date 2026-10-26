@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { gotoReady, login } from './auth'
+import { fechaLocalISO } from '../app/utils/fechas'
 import { limpiarDatosDePrueba } from './cleanup'
 
 // Recorre el asistente completo con dos horarios tipo (uno con vigencia
@@ -24,7 +25,7 @@ test.afterEach(async () => {
 test('crear un curso con horario reducido+normal, generar reparto y verlo en el dashboard', async ({ page }) => {
   // Recorre el asistente entero, genera el reparto y edita el temario: no
   // cabe en los 30 s por defecto.
-  test.setTimeout(180_000)
+  test.setTimeout(240_000)
   await login(page)
 
   await gotoReady(page, '/curso/nuevo')
@@ -198,4 +199,27 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   await page.getByRole('button', { name: 'Crear grupo' }).click()
   await page.waitForURL('/dashboard')
   await expect(page.getByRole('link', { name: nombreGrupoNuevo, exact: true })).toBeVisible()
+
+  // Editar el curso: una franja horaria que usan los grupos no se puede
+  // quitar, y un festivo que tapa los próximos dos meses (seguro que cae en
+  // días con clase) enseña cómo queda el reparto y lo recoloca.
+  const enDias = (dias: number) => {
+    const fecha = new Date()
+    fecha.setDate(fecha.getDate() + dias)
+    return fechaLocalISO(fecha)
+  }
+  await gotoReady(page, '/dashboard')
+  await page.getByRole('link', { name: nombreCurso, exact: true }).click()
+  await page.waitForURL(/\/curso\//)
+  await expect(page.getByRole('button', { name: /^La usan / }).first()).toBeDisabled()
+  await page.getByRole('button', { name: 'Añadir festivo' }).click()
+  await page.getByLabel('Nombre', { exact: true }).last().fill('Dos meses sin clase')
+  await page.getByLabel('Desde', { exact: true }).last().fill(enDias(1))
+  await page.getByLabel('Hasta (opcional, solo si dura varios días)').last().fill(enDias(60))
+  await page.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByText('El calendario del curso ha cambiado.')).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar y recolocar' }).click()
+  await page.waitForURL('/dashboard')
+  await gotoReady(page, urlReparto)
+  await expect(page.getByText('Porcentajes').first()).toBeVisible()
 })
