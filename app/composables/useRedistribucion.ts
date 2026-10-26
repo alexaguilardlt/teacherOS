@@ -323,36 +323,21 @@ export function useRedistribucion() {
     return previews
   }
 
-  // Aplica un preview ya calculado: borra las sesiones futuras afectadas y
-  // crea las nuevas ya "confirmada" (el profesor ya ha revisado el preview,
-  // no hace falta un paso de confirmación aparte para estas).
-  async function aplicarPreview(preview: PreviewGrupoAsignatura) {
-    if (preview.sesionesAEliminarIds.length) {
-      const { error } = await supabase.from('sesiones').delete().in('id', preview.sesionesAEliminarIds)
-      if (error) throw error
-    }
-
-    if (!preview.sesionesNuevas.length) return
-
-    const { data: sesionesInsertadas, error: errorSesiones } = await supabase
-      .from('sesiones')
-      .insert(preview.sesionesNuevas.map(s => ({ franja_horaria_id: s.franjaId, fecha: s.fecha, estado: 'confirmada' as const })))
-      .select('id')
-    if (errorSesiones || !sesionesInsertadas || sesionesInsertadas.length !== preview.sesionesNuevas.length) {
-      throw errorSesiones ?? new Error('No se han podido crear las sesiones redistribuidas.')
-    }
-
-    const filasSubtemas = preview.sesionesNuevas.flatMap((sesion, indice) =>
-      sesion.subtemas.map(s => ({
-        sesion_id: sesionesInsertadas[indice]!.id,
-        subtema_id: s.subtemaId,
-        fraccion: s.fraccion
-      }))
-    )
-    if (filasSubtemas.length) {
-      const { error: errorSubtemas } = await supabase.from('sesion_subtemas').insert(filasSubtemas)
-      if (errorSubtemas) throw errorSubtemas
-    }
+  // Aplica previews ya calculados en una sola transacción (función de
+  // Postgres aplicar_recolocacion): o se guardan todos, o ninguno. Las
+  // sesiones nuevas se crean ya "confirmada" (el profesor ya ha revisado la
+  // vista previa). Si se pasa un festivo, se guarda en la misma transacción.
+  async function aplicarRecolocaciones(
+    previews: PreviewGrupoAsignatura[],
+    festivo?: { cursoId: string, nombre: string, fechaInicio: string, fechaFin: string }
+  ) {
+    const { error } = await supabase.rpc('aplicar_recolocacion', {
+      recolocaciones: previews.map(p => aRecolocacionJson(p.sesionesAEliminarIds, p.sesionesNuevas, 'confirmada')),
+      festivo: festivo
+        ? { curso_id: festivo.cursoId, nombre: festivo.nombre, fecha_inicio: festivo.fechaInicio, fecha_fin: festivo.fechaFin }
+        : undefined
+    })
+    if (error) throw error
   }
 
   async function confirmar(
@@ -360,17 +345,7 @@ export function useRedistribucion() {
     nuevoFestivo: { nombre: string, fechaInicio: string, fechaFin: string },
     previews: PreviewGrupoAsignatura[]
   ) {
-    const { error: errorFestivo } = await supabase.from('dias_no_lectivos').insert({
-      curso_id: cursoId,
-      nombre: nuevoFestivo.nombre || null,
-      fecha_inicio: nuevoFestivo.fechaInicio,
-      fecha_fin: nuevoFestivo.fechaFin
-    })
-    if (errorFestivo) throw errorFestivo
-
-    for (const preview of previews) {
-      await aplicarPreview(preview)
-    }
+    await aplicarRecolocaciones(previews, { cursoId, ...nuevoFestivo })
   }
 
   // Salta una única fecha para una única asignatura-grupo, sin marcar el
@@ -426,8 +401,8 @@ export function useRedistribucion() {
   }
 
   async function confirmarUnaAsignatura(preview: PreviewGrupoAsignatura) {
-    await aplicarPreview(preview)
+    await aplicarRecolocaciones([preview])
   }
 
-  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura, previsualizarCambioTemario, previsualizarCambioHorario, aplicarPreview }
+  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura, previsualizarCambioTemario, previsualizarCambioHorario, aplicarRecolocaciones }
 }

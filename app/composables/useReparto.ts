@@ -107,34 +107,27 @@ export function useReparto() {
       sesionesPorClave.get(clave)!.subtemas.push({ subtemaId: a.subtemaId, fraccion: a.fraccion })
     }
 
-    const entradas = [...sesionesPorClave.values()]
-
-    const { data: sesionesInsertadas, error: errorSesiones } = await supabase
+    // Si ya había un reparto, se sustituye entero (también lo impartido: es
+    // "regenerar desde cero"). Borrar el viejo y crear el nuevo va en una sola
+    // transacción: si algo falla, el reparto anterior se queda como estaba.
+    const { data: sesionesAnteriores } = await supabase
       .from('sesiones')
-      .insert(entradas.map(e => ({ franja_horaria_id: e.franjaId, fecha: e.fecha })))
       .select('id')
-    if (errorSesiones || !sesionesInsertadas || sesionesInsertadas.length !== entradas.length) {
-      throw errorSesiones ?? new Error('No se han podido crear las sesiones.')
-    }
+      .in('franja_horaria_id', franjas.map(f => f.id))
 
-    const filasSubtemas = entradas.flatMap((entrada, indice) =>
-      entrada.subtemas.map(s => ({
-        sesion_id: sesionesInsertadas[indice]!.id,
-        subtema_id: s.subtemaId,
-        fraccion: s.fraccion
-      }))
-    )
-    if (filasSubtemas.length) {
-      const { error: errorSubtemas } = await supabase.from('sesion_subtemas').insert(filasSubtemas)
-      if (errorSubtemas) throw errorSubtemas
-    }
-
-    const sesionesCreadas = sesionesInsertadas.length
+    const { data: sesionesCreadas, error } = await supabase.rpc('aplicar_recolocacion', {
+      recolocaciones: [aRecolocacionJson(
+        (sesionesAnteriores ?? []).map(s => s.id),
+        [...sesionesPorClave.values()],
+        'propuesta'
+      )]
+    })
+    if (error) throw error
 
     const nombrePorId = new Map(subtemasOrdenados.map(s => [s.id, s.nombre]))
     const subtemasNoAsignados = [...new Set(subtemasNoAsignadosIds)].map(id => nombrePorId.get(id) ?? id)
 
-    return { sesionesCreadas, subtemasNoAsignados }
+    return { sesionesCreadas: sesionesCreadas ?? 0, subtemasNoAsignados }
   }
 
   async function eliminarTodas(grupoAsignaturaId: string) {

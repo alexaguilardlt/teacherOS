@@ -10,7 +10,7 @@ const route = useRoute()
 const asignaturaId = route.params.id as string
 
 const supabase = useSupabaseClient()
-const { previsualizarCambioTemario, aplicarPreview } = useRedistribucion()
+const { previsualizarCambioTemario, aplicarRecolocaciones } = useRedistribucion()
 
 const etiquetaTipoSuelto: Record<TipoElementoSuelto, string> = {
   repaso: 'Repaso',
@@ -256,8 +256,8 @@ async function guardarTemario(plan: PlanGuardadoTemario, previews: PreviewGrupoA
       if (errorSubtemas) throw errorSubtemas
     }
 
-    for (const preview of previews) {
-      await aplicarPreview(preview)
+    if (previews.length) {
+      await aplicarRecolocaciones(previews)
     }
 
     if (plan.subtemaIdsABorrar.length) {
