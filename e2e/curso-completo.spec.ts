@@ -249,4 +249,12 @@ test('crear un curso con horario reducido+normal, generar reparto y verlo en el 
   await page.getByRole('button', { name: 'Regenerar reparto' }).click()
   await expect(page.getByText(/Se han creado \d+ sesiones\./)).toBeVisible()
   await expect(page.locator('tbody tr', { hasText: fechaSaltada })).toContainText('Cancelada')
+
+  // Recuperar la clase saltada: ese día vuelve a tener clase.
+  await page.locator('tbody tr', { hasText: fechaSaltada }).getByRole('button', { name: 'Recuperar clase' }).click()
+  await expect(page.getByText('vuelve a tener clase')).toBeVisible()
+  await page.getByRole('button', { name: 'Recuperar y recolocar' }).click()
+  const filaRecuperada = page.locator('tbody tr', { hasText: fechaSaltada })
+  await expect(filaRecuperada).toContainText('Confirmada')
+  await expect(filaRecuperada).not.toContainText('Cancelada')
 })

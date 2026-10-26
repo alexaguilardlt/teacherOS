@@ -325,3 +325,22 @@ export function sesionesAlSaltarUnDia(
   }
   return { aCancelar }
 }
+
+// Prepara la recolocación para recuperar una clase saltada (cancelada): esa
+// sesión vuelve a contar como un día con clase normal, y se recoloca desde
+// su fecha (ese día recibe contenido y lo de detrás se reajusta). Lo pasado
+// es historia: no se recupera una clase de un día anterior a hoy.
+export function prepararRecuperarClase(
+  sesiones: SesionExistente[],
+  sesionId: string,
+  hoy: string
+): { sesiones: SesionExistente[], fechaCorte: string } | { motivo: string } {
+  const sesion = sesiones.find(s => s.id === sesionId)
+  if (!sesion || sesion.estado !== 'cancelada') return { motivo: 'Esa clase no está cancelada.' }
+  if (sesion.fecha < hoy) return { motivo: 'No se puede recuperar una clase de un día que ya ha pasado.' }
+
+  return {
+    sesiones: sesiones.map(s => (s.id === sesionId ? { ...s, estado: 'confirmada' } : s)),
+    fechaCorte: sesion.fecha
+  }
+}

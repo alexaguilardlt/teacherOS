@@ -4,7 +4,7 @@ const grupoAsignaturaId = route.params.grupoAsignaturaId as string
 
 const supabase = useSupabaseClient()
 const { generar, eliminarTodas } = useReparto()
-const { previsualizarUnaAsignatura, confirmarUnaAsignatura } = useRedistribucion()
+const { previsualizarUnaAsignatura, previsualizarRecuperarClase, confirmarUnaAsignatura } = useRedistribucion()
 
 const { data: ga } = await useAsyncData(`reparto-ga-${grupoAsignaturaId}`, async () => {
   const { data } = await supabase
@@ -75,6 +75,46 @@ function nombreSubtema(id: string) {
 
 function subtemasDeSesion(sesionId: string) {
   return (sesionSubtemas.value ?? []).filter(ss => ss.sesion_id === sesionId)
+}
+
+// Recuperar una clase saltada por error (o una excursión que al final no se
+// hace): ese día vuelve a tener clase y el reparto se recoloca desde ahí.
+const hoy = fechaLocalISO()
+const modalRecuperarAbierto = ref(false)
+const previewRecuperar = ref<PreviewGrupoAsignatura | null>(null)
+const fechaARecuperar = ref('')
+const recuperandoId = ref<string | null>(null)
+const confirmandoRecuperar = ref(false)
+const errorRecuperar = ref('')
+
+async function onRecuperar(sesion: { id: string, fecha: string }) {
+  recuperandoId.value = sesion.id
+  errorMessage.value = ''
+  try {
+    previewRecuperar.value = await previsualizarRecuperarClase(grupoAsignaturaId, sesion.id)
+    fechaARecuperar.value = sesion.fecha
+    errorRecuperar.value = ''
+    modalRecuperarAbierto.value = true
+  } catch (e) {
+    errorMessage.value = (e as { message?: string })?.message || 'No se ha podido calcular cómo quedaría el reparto.'
+  } finally {
+    recuperandoId.value = null
+  }
+}
+
+async function onConfirmarRecuperar() {
+  if (!previewRecuperar.value) return
+  confirmandoRecuperar.value = true
+  errorRecuperar.value = ''
+  try {
+    await confirmarUnaAsignatura(previewRecuperar.value)
+    modalRecuperarAbierto.value = false
+    await recargarSesiones()
+  } catch (e) {
+    errorRecuperar.value = (e as { message?: string })?.message || 'No se ha podido recuperar la clase.'
+  } finally {
+    confirmandoRecuperar.value = false
+  }
 }
 
 const etiquetaEstado: Record<string, string> = {
@@ -297,12 +337,25 @@ async function onConfirmarSalto() {
                 </template>
               </td>
               <td class="p-2">
-                <UBadge
-                  :color="sesion.estado === 'confirmada' ? 'success' : 'neutral'"
-                  variant="subtle"
-                >
-                  {{ etiquetaEstado[sesion.estado] }}
-                </UBadge>
+                <div class="flex items-center gap-2">
+                  <UBadge
+                    :color="sesion.estado === 'confirmada' ? 'success' : 'neutral'"
+                    variant="subtle"
+                  >
+                    {{ etiquetaEstado[sesion.estado] }}
+                  </UBadge>
+                  <UButton
+                    v-if="sesion.estado === 'cancelada' && sesion.fecha >= hoy"
+                    icon="i-lucide-undo-2"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    :loading="recuperandoId === sesion.id"
+                    @click="onRecuperar(sesion)"
+                  >
+                    Recuperar clase
+                  </UButton>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -387,6 +440,48 @@ async function onConfirmarSalto() {
             Confirmar
           </UButton>
         </div>
+      </template>
+    </UModal>
+
+    <UModal
+      v-model:open="modalRecuperarAbierto"
+      title="Recuperar la clase"
+      :dismissible="!confirmandoRecuperar"
+    >
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <p class="text-sm text-muted">
+            El {{ fechaARecuperar.split('-').reverse().join('/') }} vuelve a tener clase, y el reparto se recoloca desde ese día.
+            Las sesiones anteriores y las ya impartidas no se tocan.
+          </p>
+          <ResumenRedistribucion
+            v-if="previewRecuperar"
+            :previews="[previewRecuperar]"
+          />
+          <UAlert
+            v-if="errorRecuperar"
+            color="error"
+            variant="subtle"
+            :title="errorRecuperar"
+          />
+        </div>
+      </template>
+
+      <template #footer>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          :disabled="confirmandoRecuperar"
+          @click="modalRecuperarAbierto = false"
+        >
+          Cancelar
+        </UButton>
+        <UButton
+          :loading="confirmandoRecuperar"
+          @click="onConfirmarRecuperar"
+        >
+          Recuperar y recolocar
+        </UButton>
       </template>
     </UModal>
   </UContainer>

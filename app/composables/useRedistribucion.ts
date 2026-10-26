@@ -473,9 +473,73 @@ export function useRedistribucion() {
     return preview
   }
 
+  // Cómo quedaría el reparto de una asignatura-grupo si se recupera una
+  // clase saltada (cancelada): ese día vuelve a tener clase y se recoloca
+  // desde su fecha. Se confirma con confirmarUnaAsignatura.
+  async function previsualizarRecuperarClase(
+    grupoAsignaturaId: string,
+    sesionId: string
+  ): Promise<PreviewGrupoAsignatura> {
+    const { data: ga } = await supabase
+      .from('grupo_asignaturas')
+      .select('id, grupo_id, asignatura_id')
+      .eq('id', grupoAsignaturaId)
+      .single()
+    if (!ga) throw new Error('No se ha encontrado la asignación de esta asignatura al grupo.')
+
+    const { data: grupo } = await supabase
+      .from('grupos')
+      .select('nombre, curso_id')
+      .eq('id', ga.grupo_id)
+      .single()
+    if (!grupo) throw new Error('No se ha encontrado el grupo.')
+
+    const { data: curso } = await supabase
+      .from('cursos')
+      .select('fecha_fin')
+      .eq('id', grupo.curso_id)
+      .single()
+    if (!curso) throw new Error('No se ha encontrado el curso.')
+
+    const { data: festivos } = await supabase
+      .from('dias_no_lectivos')
+      .select('fecha_inicio, fecha_fin')
+      .eq('curso_id', grupo.curso_id)
+
+    const datos = await cargarSesionesYFranjas(ga.id)
+    if (!datos) throw new Error('Esta asignatura no tiene reparto.')
+
+    const preparado = prepararRecuperarClase(
+      datos.sesiones.map(s => ({ id: s.id, franjaId: s.franja_horaria_id, fecha: s.fecha, estado: s.estado })),
+      sesionId,
+      fechaLocalISO()
+    )
+    if ('motivo' in preparado) throw new Error(preparado.motivo)
+
+    const estadoPorId = new Map(preparado.sesiones.map(s => [s.id, s.estado]))
+    const preview = await calcularRecolocacion(
+      ga,
+      { franjas: datos.franjas, sesiones: datos.sesiones.map(s => ({ ...s, estado: estadoPorId.get(s.id)! })) },
+      {
+        fechaCorte: preparado.fechaCorte,
+        fechaFin: curso.fecha_fin,
+        festivos: (festivos ?? []).map(f => ({ inicio: f.fecha_inicio, fin: f.fecha_fin }))
+      }
+    )
+
+    const { data: asignatura } = await supabase
+      .from('asignaturas')
+      .select('nombre')
+      .eq('id', ga.asignatura_id)
+      .single()
+    preview.grupoNombre = grupo.nombre
+    preview.asignaturaNombre = asignatura?.nombre ?? ''
+    return preview
+  }
+
   async function confirmarUnaAsignatura(preview: PreviewGrupoAsignatura) {
     await aplicarRecolocaciones([preview])
   }
 
-  return { previsualizar, confirmar, previsualizarUnaAsignatura, confirmarUnaAsignatura, previsualizarCambioTemario, previsualizarCambioHorario, previsualizarCambioCurso, aplicarRecolocaciones }
+  return { previsualizar, confirmar, previsualizarUnaAsignatura, previsualizarRecuperarClase, confirmarUnaAsignatura, previsualizarCambioTemario, previsualizarCambioHorario, previsualizarCambioCurso, aplicarRecolocaciones }
 }

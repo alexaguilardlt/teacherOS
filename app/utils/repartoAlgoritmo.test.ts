@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agruparEnBloques, construirSlots, estaEnFestivo, recolocacionSinCambios, recolocarDesde, repartirBloques, sesionesAlSaltarUnDia, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
+import { agruparEnBloques, construirSlots, estaEnFestivo, prepararRecuperarClase, recolocacionSinCambios, recolocarDesde, repartirBloques, sesionesAlSaltarUnDia, subtemasYaDados, temarioAfectaAlReparto } from './repartoAlgoritmo'
 
 describe('estaEnFestivo', () => {
   it('detecta una fecha dentro del rango, incluyendo los extremos', () => {
@@ -477,5 +477,47 @@ describe('sesionesAlSaltarUnDia', () => {
 
   it('sin clase ese día no hay nada que cancelar', () => {
     expect(sesionesAlSaltarUnDia(sesiones, '2026-10-13', '2026-10-01')).toEqual({ aCancelar: [] })
+  })
+})
+
+describe('prepararRecuperarClase', () => {
+  // Lunes 12 saltado: sus contenidos se movieron al 19 y al 26.
+  const franjas = [{ franjaId: 'f1', diaSemana: 'lunes' as const, horaInicio: '09:00' }]
+  const sesiones = [
+    { id: 'a', franjaId: 'f1', fecha: '2026-10-05', estado: 'confirmada' },
+    { id: 'b', franjaId: 'f1', fecha: '2026-10-12', estado: 'cancelada' },
+    { id: 'c', franjaId: 'f1', fecha: '2026-10-19', estado: 'confirmada' },
+    { id: 'd', franjaId: 'f1', fecha: '2026-10-26', estado: 'confirmada' }
+  ]
+  const enlaces = [
+    { sesionId: 'a', subtemaId: 's1' },
+    { sesionId: 'c', subtemaId: 's2' },
+    { sesionId: 'd', subtemaId: 's3' }
+  ]
+
+  it('el día recuperado vuelve a tener clase y lo de detrás se adelanta', () => {
+    const preparado = prepararRecuperarClase(sesiones, 'b', '2026-10-10')
+    if ('motivo' in preparado) throw new Error(preparado.motivo)
+
+    const resultado = recolocarDesde({
+      subtemasOrdenados: [{ id: 's1', duracionSesiones: 1 }, { id: 's2', duracionSesiones: 1 }, { id: 's3', duracionSesiones: 1 }],
+      sesiones: preparado.sesiones,
+      enlaces,
+      franjas,
+      fechaCorte: preparado.fechaCorte,
+      fechaFin: '2026-10-26',
+      festivos: []
+    })
+
+    expect(resultado.sesionesAEliminarIds).toEqual(['b', 'c', 'd'])
+    expect(resultado.sesionesNuevas.map(s => [s.fecha, s.subtemas[0]!.subtemaId])).toEqual([
+      ['2026-10-12', 's2'],
+      ['2026-10-19', 's3']
+    ])
+  })
+
+  it('no recupera una clase que no está cancelada ni una de un día pasado', () => {
+    expect(prepararRecuperarClase(sesiones, 'c', '2026-10-10')).toEqual({ motivo: 'Esa clase no está cancelada.' })
+    expect(prepararRecuperarClase(sesiones, 'b', '2026-10-13')).toMatchObject({ motivo: expect.stringMatching(/ya ha pasado/) })
   })
 })
