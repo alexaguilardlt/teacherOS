@@ -112,9 +112,12 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
         }
       }
 
+      // Una franja no propia (la imparte otra persona) no ocupa de verdad
+      // el tiempo del profesor: no puede chocar con nada.
       const franjas = state.grupos.flatMap(grupo =>
         grupo.asignaturas.flatMap(ga => ga.franjas)
       )
+        .filter(franja => franja.propia)
         .map(franja => ({
           diaSemana: franja.diaSemana,
           periodo: periodosPorClienteId.get(franja.periodoClienteId),
@@ -340,7 +343,8 @@ export const useCursoWizardStore = defineStore('curso-wizard', {
       ga.franjas.push({
         clienteId: crypto.randomUUID(),
         diaSemana: 'lunes',
-        periodoClienteId: primerPeriodo?.clienteId ?? ''
+        periodoClienteId: primerPeriodo?.clienteId ?? '',
+        propia: true
       })
     },
 

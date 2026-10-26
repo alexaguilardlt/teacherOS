@@ -109,7 +109,7 @@ const opcionesPeriodo = computed(() =>
               <div
                 v-for="franja in asignaturaEnGrupo(grupo.clienteId, asignatura.clienteId)!.franjas"
                 :key="franja.clienteId"
-                class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+                class="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto_auto]"
               >
                 <UFormField label="Día">
                   <USelect
@@ -128,6 +128,12 @@ const opcionesPeriodo = computed(() =>
                     class="w-full"
                   />
                 </UFormField>
+
+                <UCheckbox
+                  v-model="franja.propia"
+                  label="La imparto yo"
+                  class="pb-2"
+                />
 
                 <UButton
                   icon="i-lucide-trash-2"

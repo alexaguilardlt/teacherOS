@@ -14,6 +14,7 @@ export interface FranjaSeleccion {
   clienteId: string
   diaSemana: DiaSemana
   periodoId: string
+  propia: boolean
 }
 
 export interface SeleccionAsignatura {
@@ -88,7 +89,8 @@ export function useSeleccionAsignaturas(
     seleccionDe(asignaturaId)?.franjas.push({
       clienteId: crypto.randomUUID(),
       diaSemana: 'lunes',
-      periodoId: opcionesPeriodo.value[0]?.value ?? ''
+      periodoId: opcionesPeriodo.value[0]?.value ?? '',
+      propia: true
     })
   }
 
@@ -103,6 +105,7 @@ export function useSeleccionAsignaturas(
 
     const franjas = seleccion.value
       .flatMap(s => s.franjas)
+      .filter(franja => franja.propia)
       .map(franja => ({ diaSemana: franja.diaSemana, periodo: periodoPorId.get(franja.periodoId) }))
       .filter((f): f is { diaSemana: DiaSemana, periodo: PeriodoDisponible } => Boolean(f.periodo))
 

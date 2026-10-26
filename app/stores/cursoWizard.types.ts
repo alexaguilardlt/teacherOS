@@ -73,6 +73,10 @@ export interface FranjaWizard {
   clienteId: string
   diaSemana: DiaSemana
   periodoClienteId: string
+  // Falso si esta franja no la imparte el profesor (asignatura compartida
+  // con otra persona): cuenta para el ritmo del reparto pero no es una
+  // sesión suya.
+  propia: boolean
 }
 
 export interface GrupoAsignaturaWizard {

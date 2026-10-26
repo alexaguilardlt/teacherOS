@@ -354,14 +354,23 @@ async function onConfirmarRedistribucion() {
                   >
                     <div
                       v-if="celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)"
-                      class="rounded-md px-2 py-1 text-white"
-                      :style="{ backgroundColor: celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.color }"
+                      class="rounded-md px-2 py-1"
+                      :class="celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.propia ? 'text-white' : 'border-2 border-dashed'"
+                      :style="celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.propia
+                        ? { backgroundColor: celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.color }
+                        : { borderColor: celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.color, color: celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.color }"
                     >
                       <p class="font-medium">
                         {{ celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.asignatura }}
                       </p>
                       <p class="text-xs opacity-90">
                         {{ celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.grupo }}
+                      </p>
+                      <p
+                        v-if="!celdas.get(`${fila.horaInicio}-${fila.horaFin}-${dia.value}`)!.propia"
+                        class="text-xs italic opacity-90"
+                      >
+                        La imparte otra persona
                       </p>
                     </div>
                   </td>
@@ -473,6 +482,7 @@ async function onConfirmarRedistribucion() {
                           {{ etiquetaEstado[sesion.estado] }}
                         </UBadge>
                         <UButton
+                          v-if="detalleSesion(sesion).propia"
                           :icon="sesion.estado === 'impartida' ? 'i-lucide-rotate-ccw' : 'i-lucide-check'"
                           color="neutral"
                           variant="ghost"
@@ -481,6 +491,12 @@ async function onConfirmarRedistribucion() {
                           :aria-label="sesion.estado === 'impartida' ? 'Desmarcar como impartida' : 'Marcar como impartida'"
                           @click="alternarImpartida(sesion.id, sesion.estado)"
                         />
+                        <span
+                          v-else
+                          class="text-xs text-muted"
+                        >
+                          No la impartes tú
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -617,7 +633,17 @@ async function onConfirmarRedistribucion() {
                           <span class="text-muted">{{ punto.tema }} — </span>{{ punto.subtema }}<span v-if="punto.fraccion < 1"> (½)</span>
                         </li>
                       </ul>
-                      <div class="mt-2 flex items-center gap-2">
+                      <p
+                        v-if="!detalle.propia"
+                        class="mt-2 text-sm text-muted"
+                      >
+                        Esta sesión la imparte otra persona: no hay nada que marcar ni anotar por tu parte.
+                      </p>
+
+                      <div
+                        v-else
+                        class="mt-2 flex items-center gap-2"
+                      >
                         <UBadge
                           :color="colorEstado[detalle.estado] ?? 'neutral'"
                           variant="subtle"
@@ -637,6 +663,7 @@ async function onConfirmarRedistribucion() {
                       </div>
 
                       <UFormField
+                        v-if="detalle.propia"
                         label="Anotación"
                         class="mt-2"
                       >

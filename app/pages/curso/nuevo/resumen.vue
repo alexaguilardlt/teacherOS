@@ -203,7 +203,8 @@ async function guardar() {
             .insert(ga.franjas.map(franja => ({
               grupo_asignatura_id: grupoAsignaturaInsertado.id,
               dia_semana: franja.diaSemana,
-              periodo_id: periodoIdPorClienteId.get(franja.periodoClienteId)!
+              periodo_id: periodoIdPorClienteId.get(franja.periodoClienteId)!,
+              propia: franja.propia
             })))
           if (errorFranjas) throw errorFranjas
         }
@@ -347,7 +348,7 @@ async function guardar() {
               :key="ga.asignaturaClienteId"
             >
               {{ nombreAsignatura(ga.asignaturaClienteId) }} —
-              {{ ga.franjas.map(f => `${etiquetasDia[f.diaSemana]} ${etiquetaPeriodo(f.periodoClienteId)}`).join(', ') }}
+              {{ ga.franjas.map(f => `${etiquetasDia[f.diaSemana]} ${etiquetaPeriodo(f.periodoClienteId)}${f.propia ? '' : ' (no la impartes tú)'}`).join(', ') }}
             </li>
           </ul>
         </div>
